@@ -1,4 +1,4 @@
-// ---- KONSTANTER ----
+    // ---- KONSTANTER ----
 
 const MAX_GLASSES = 18;       // 6 i bredden * 3 rader
 const GLASSES_PER_ROW = 6;
@@ -134,10 +134,10 @@ function drawBoard() {
       glassEl.classList.add("fs-glass--selected");
     }
 
-    // Jar inner (under frukten) as an <img>
+    // drawBoard() — create jar imgs instead of background divs
     const jarInnerImg = document.createElement("img");
     jarInnerImg.className = "fs-jar-inner-img";
-    jarInnerImg.src = "img/jar_inner.png";
+    jarInnerImg.src = "img/jar_inner.png"; // or jar_inner_trim.png
     jarInnerImg.alt = "jar inner";
     jarInnerImg.draggable = false;
     glassEl.appendChild(jarInnerImg);
@@ -156,7 +156,6 @@ function drawBoard() {
 
     glassEl.appendChild(stackEl);
 
-    // Jar outer (overlay over frukten) as an <img>
     const jarOuterImg = document.createElement("img");
     jarOuterImg.className = "fs-jar-outer-img";
     jarOuterImg.src = "img/jar_outer.svg";

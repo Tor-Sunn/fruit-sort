@@ -129,18 +129,19 @@ body {
 .fs-jar-inner-img,
 .fs-jar-outer-img {
   position: absolute;
-  inset: 0;
-  width: 96%;
-  height: 96%;
-  object-fit: contain;   /* behold proporsjoner, fyll elementet */
+  left: 50%;
+  top: 50%;
+  width: 92%;
+  height: auto;
+  transform: translate(-50%, -6%); /* slight vertical nudge so top fruit can sit above rim */
+  object-fit: contain;
   pointer-events: none;
-  margin: auto;
-  z-index: 0; /* outer får higher z-index below */
+  z-index: 0;
 }
 
 .fs-jar-outer-img {
   z-index: 2;
-  pointer-events: none;
+  transform: translate(-50%, -6%);
 }
 
 /* Frukt-stack inni glasset (midtre lag) */
