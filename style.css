@@ -66,6 +66,9 @@ body {
   gap: 20px;
   justify-content: center;
   align-items: start;
+
+  /* NEW: push the board down so jars don't overlap the header / top text */
+  margin-top: 28px;
 }
 
 /* --- Glass --- */
@@ -147,8 +150,8 @@ body {
   pointer-events: none;
   object-fit: contain;
   object-position: center bottom;
-  /* increased so fruits are a bit larger visually */
-  max-height: 26%;
+  /* INCREASED so fruits are larger visually now that stack is anchored */
+  max-height: 30%;
 }
 
 /* --- Responsivt --- */
@@ -172,7 +175,8 @@ body {
     bottom: 9%;
   }
   .fs-fruit {
-    max-height: 24%;
+    /* slightly smaller on medium screens */
+    max-height: 28%;
   }
   .fs-jar-inner,
   .fs-jar-outer {
@@ -198,7 +202,8 @@ body {
     gap: 6px;
   }
   .fs-fruit {
-    max-height: 22%;
+    /* smaller on small screens so 4 items still fit */
+    max-height: 26%;
   }
   .fs-jar-inner,
   .fs-jar-outer {
