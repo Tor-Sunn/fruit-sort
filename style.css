@@ -125,6 +125,24 @@ body {
   opacity: 1;
 }
 
+/* new rules for img-based jars */
+.fs-jar-inner-img,
+.fs-jar-outer-img {
+  position: absolute;
+  inset: 0;
+  width: 96%;
+  height: 96%;
+  object-fit: contain;   /* behold proporsjoner, fyll elementet */
+  pointer-events: none;
+  margin: auto;
+  z-index: 0; /* outer får higher z-index below */
+}
+
+.fs-jar-outer-img {
+  z-index: 2;
+  pointer-events: none;
+}
+
 /* Frukt-stack inni glasset (midtre lag) */
 
 .fs-fruit-stack {
