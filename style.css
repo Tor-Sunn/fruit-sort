@@ -107,7 +107,7 @@ body {
   /* width controls jar visual size relative to .fs-glass */
   width: 92%;
   height: auto;
-  transform: translate(-50%, -6%); /* small vertical nudge so fruits can sit above rim */
+  transform: translate(-50%, -2%); /* small vertical nudge so fruits can sit above rim */
   object-fit: contain;
   pointer-events: none;
   z-index: 0;
@@ -126,7 +126,7 @@ body {
   justify-content: flex-end;
   align-items: center;
   gap: 8px;
-  margin-bottom: 6%;
+  margin-bottom: 3%;
 }
 
 .fs-fruit {
@@ -135,6 +135,8 @@ body {
   height: auto;
   pointer-events: none;
   object-fit: contain;
+  object-position: center bottom;
+  max-height: 24%;
 }
 
 /* --- Responsivt --- */
