@@ -119,12 +119,20 @@ body {
   z-index: 2; /* ensure glow sits above the jar base */
 }
 
+/* Ensure the fruit stack sits above the jar inner image when selected.
+   Previously the jar inner got a higher z-index when selected and covered the fruits. */
+.fs-glass--selected .fs-fruit-stack {
+  z-index: 6;
+}
+
 /* Make the fruits inside the selected jar bob gently */
 .fs-glass--selected .fs-fruit {
   animation: fruit-bob 1200ms ease-in-out infinite;
   animation-delay: calc(var(--fruit-index, 0) * 60ms);
   transform-origin: center bottom;
-  z-index: 3;
+  /* make the fruit itself positioned so z-index rules work reliably */
+  position: relative;
+  z-index: 7;
 }
 
 /* remove native focus ring on jars (override UA focus) */
@@ -185,6 +193,8 @@ body {
   object-fit: contain;
   object-position: center bottom;
   max-height: 36%;
+  /* position set to allow z-index on individual fruits if needed */
+  position: relative;
 }
 
 /* --- Animations --- */
