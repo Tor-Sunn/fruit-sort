@@ -93,6 +93,49 @@ function computeLeafBottomPercent(indexFromBottom) {
     return base + indexFromBottom * step;
 }
 
+// Position all leaf wrappers to match their fruit elements.
+// Uses data attributes set on .fs-leaf-wrap: data-glass and data-covered-index.
+function positionLeaves() {
+    const wraps = document.querySelectorAll(".fs-leaf-wrap");
+    wraps.forEach(w => {
+        const glassIndex = Number(w.dataset.glass);
+        const coveredIndex = Number(w.dataset.coveredIndex); // index from bottom
+        const glassEl = document.querySelector(`.fs-glass[data-index="${glassIndex}"]`);
+        if (!glassEl) return;
+        const stackEl = glassEl.querySelector(".fs-fruit-stack");
+        if (!stackEl) return;
+
+        const fruitImgs = stackEl.querySelectorAll(".fs-fruit");
+        const stack = glasses[glassIndex] || [];
+        // Map coveredIndex (0=bottom) to DOM index: DOM[0]=top ... DOM[n-1]=bottom
+        const domIndex = (stack.length - 1) - coveredIndex;
+        const fruitEl = fruitImgs[domIndex];
+
+        if (fruitEl && fruitEl.clientHeight > 0) {
+            // center over fruit
+            const leftPx = fruitEl.offsetLeft + fruitEl.offsetWidth / 2;
+            const topPx = fruitEl.offsetTop + fruitEl.offsetHeight / 2;
+            const wSize = Math.round(fruitEl.offsetWidth * 1.25); // make leaf larger (1.25x)
+            const hSize = Math.round(fruitEl.offsetHeight * 1.25);
+
+            w.style.width = `${wSize}px`;
+            w.style.height = `${hSize}px`;
+            w.style.left = `${leftPx}px`;
+            w.style.top = `${topPx}px`;
+            w.style.transform = `translate(-50%, -50%)`;
+        } else {
+            // fallback percent placement (when measurements not available)
+            const bottomPct = computeLeafBottomPercent(coveredIndex);
+            w.style.left = `50%`;
+            w.style.transform = `translateX(-50%)`;
+            w.style.bottom = `${bottomPct}%`;
+            w.style.width = `54%`;
+            w.style.height = `auto`;
+            w.style.top = ""; // clear top
+        }
+    });
+}
+
 // ---- GENERER BRETT ----
 
 function generateLevel(config) {
@@ -186,51 +229,28 @@ function drawBoard() {
         glassEl.appendChild(stackEl);
 
         // If this glass index has a cover depth > 0, render one leaf per covered fruit.
-        // NEW: append leaves into stackEl (same container as fruits) and position them over the actual fruit element.
         const depth = coveredMap[i] || 0;
         if (depth > 0 && i < activeLevel.glasses && stack.length > 0) {
             const topIndex = stack.length - 1;
-            // After fruits are in the DOM, we can measure them to align leaves exactly.
-            // Child nodes order: DOM order = top -> bottom
-            const fruitImgs = stackEl.querySelectorAll(".fs-fruit");
 
             for (let k = 1; k <= depth; k++) {
                 const coveredIndex = topIndex - k;
                 if (coveredIndex < 0) break;
-                const indexFromBottom = coveredIndex; // 0 = bottom
-
-                // map coveredIndex to DOM index of fruit image:
-                const domIndex = (stack.length - 1) - indexFromBottom; // DOM[0]=top ... DOM[n-1]=bottom
-                const fruitEl = fruitImgs[domIndex];
 
                 // wrapper that will contain <img src="img/leaf.png"> and the question span
                 const leafWrap = document.createElement("div");
                 leafWrap.className = "fs-leaf-wrap";
                 leafWrap.setAttribute("aria-hidden", "true");
-                leafWrap.style.position = "absolute";
-                leafWrap.style.pointerEvents = "none";
+                leafWrap.dataset.glass = String(i);
+                leafWrap.dataset.coveredIndex = String(coveredIndex);
 
-                if (fruitEl && fruitEl.clientHeight > 0) {
-                    // position leaf exactly over fruit element (relative to stackEl)
-                    const leftPx = fruitEl.offsetLeft + fruitEl.offsetWidth / 2;
-                    const topPx = fruitEl.offsetTop; // top inside stackEl
-                    const w = Math.round(fruitEl.offsetWidth * 1.02);
-                    const h = Math.round(fruitEl.offsetHeight * 1.02);
-
-                    leafWrap.style.width = `${w}px`;
-                    leafWrap.style.height = `${h}px`;
-                    leafWrap.style.left = `${leftPx}px`;
-                    leafWrap.style.top = `${topPx}px`;
-                    leafWrap.style.transform = `translate(-50%, 0)`;
-                } else {
-                    // fallback: position by percent computed from overall glass layout
-                    const bottomPct = computeLeafBottomPercent(indexFromBottom);
-                    leafWrap.style.left = `50%`;
-                    leafWrap.style.transform = `translateX(-50%)`;
-                    leafWrap.style.bottom = `${bottomPct}%`;
-                    leafWrap.style.width = `54%`;
-                    leafWrap.style.height = `auto`;
-                }
+                // initial fallback sizing (will be corrected by positionLeaves)
+                const bottomPct = computeLeafBottomPercent(coveredIndex);
+                leafWrap.style.left = "50%";
+                leafWrap.style.transform = "translateX(-50%)";
+                leafWrap.style.bottom = `${bottomPct}%`;
+                leafWrap.style.width = `54%`;
+                leafWrap.style.height = `auto`;
 
                 // leaf image element (fills wrapper)
                 const leafImg = document.createElement("img");
@@ -238,16 +258,12 @@ function drawBoard() {
                 leafImg.src = "img/leaf.png";
                 leafImg.alt = "leaf";
                 leafImg.draggable = false;
-                leafImg.style.width = "100%";
-                leafImg.style.height = "100%";
-                leafImg.style.objectFit = "contain";
-                leafImg.style.display = "block";
 
                 // centered question badge
                 const q = document.createElement("span");
                 q.className = "fs-leaf-q";
                 q.textContent = "?";
-                // append in order: img under badge
+
                 leafWrap.appendChild(leafImg);
                 leafWrap.appendChild(q);
 
@@ -258,6 +274,11 @@ function drawBoard() {
 
         boardEl.appendChild(glassEl);
     }
+
+    // position leaves after paint so measurements are valid
+    requestAnimationFrame(() => {
+        positionLeaves();
+    });
 }
 
 // ---- INTERAKSJON ----
@@ -346,15 +367,9 @@ function handleGlassClick(index) {
     selectedGlassIndex = null;
 
     // Reveal logic for covers on the source jar:
-    // - Only triggered when we removed at least one visible fruit from that jar.
-    // - Remove exactly one covered layer (depth -= 1). If after that the newly revealed fruit and the next covered fruit are identical,
-    //   reveal the second as well (depth -= 1 again). Maximum reveal per move is 2.
     if (removedCount > 0 && coveredMap[from] && coveredMap[from] > 0) {
-        // reveal one covered fruit
         coveredMap[from] = Math.max(0, coveredMap[from] - 1);
 
-        // if there is still at least one covered fruit after revealing the first,
-        // check exception: if the now-visible fruit and the next covered one are same type, reveal the second as well.
         const newStack = glasses[from];
         const newTop = newStack.length - 1;
         if ((coveredMap[from] > 0) && newTop >= 1) {
@@ -381,6 +396,9 @@ boardEl.addEventListener("click", (e) => {
     const index = Number(glassEl.dataset.index);
     handleGlassClick(index);
 });
+
+// reposition leaves on resize
+window.addEventListener("resize", () => requestAnimationFrame(positionLeaves));
 
 // ---- START / RESET ----
 
