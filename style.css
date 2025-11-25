@@ -92,23 +92,37 @@ body {
   outline-offset: 2px;
 }
 
-/* Jar grafikk */
+/* Jar grafikklag: inner under frukt, outer over frukt */
 
-.fs-jar {
+.fs-jar-inner {
   position: absolute;
   inset: 0;
-  background-image: url("img/jar_outer.png");
+  background-image: url("img/jar_inner.png");
   background-size: contain;
   background-repeat: no-repeat;
   background-position: center bottom;
   pointer-events: none;
-  opacity: 0.9;
+  z-index: 0;
+  opacity: 0.95;
 }
 
-/* Frukt-stack inni glasset */
+.fs-jar-outer {
+  position: absolute;
+  inset: 0;
+  background-image: url("img/jar_outer.svg");
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center bottom;
+  pointer-events: none;
+  z-index: 2;
+  opacity: 1;
+}
+
+/* Frukt-stack inni glasset (midtre lag) */
 
 .fs-fruit-stack {
   position: relative;
+  z-index: 1;
   width: 60%;
   height: 70%;
   display: flex;
