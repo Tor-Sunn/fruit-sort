@@ -101,6 +101,13 @@ body {
   outline-offset: 2px;
 }
 
+/* remove native focus ring on jars (override UA focus) */
+.fs-glass:focus,
+.fs-glass:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
 /* Jar grafikklag: inner under frukt (img-based) */
 
 /* Anchor jar image to the bottom of the glass so rim lines up predictably.
