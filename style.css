@@ -132,11 +132,13 @@ body {
 .fs-fruit {
   display: block;
   max-width: 100%;
+  width: auto;
   height: auto;
   pointer-events: none;
   object-fit: contain;
   object-position: center bottom;
-  max-height: 24%;
+  /* 78% (stack height) delt på 4 items = 19.5% => sikrer alle 4 passer i stacken */
+  max-height: 19.5%;
 }
 
 /* --- Responsivt --- */
