@@ -16,7 +16,8 @@ body {
 
 .fs-wrapper {
   width: 100%;
-  max-width: 900px;
+  /* Raised max-width so grid columns can be wider and jars can grow */
+  max-width: 1400px;
 }
 
 .fs-title {
@@ -57,10 +58,14 @@ body {
 
 /* --- Board (plass til 18 glass: 6 per rad * 3 rader) --- */
 
+/* Use minmax so columns have a sensible minimum width (so jars can be larger).
+   The layout will still be responsive: columns expand, but never shrink below 180px. */
 .fs-board {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 16px;
+  grid-template-columns: repeat(6, minmax(180px, 1fr));
+  gap: 20px;
+  justify-content: center;
+  align-items: start;
 }
 
 /* --- Glass --- */
@@ -68,8 +73,8 @@ body {
 .fs-glass {
   position: relative;
   width: 100%;
-  /* Increased jar width (much larger) */
-  max-width: 260px;
+  /* larger target max width for jars (will take effect when grid cell allows it) */
+  max-width: 280px;
   aspect-ratio: 3 / 5;
   margin-inline: auto;
   display: flex;
@@ -99,8 +104,8 @@ body {
   position: absolute;
   inset: 0;
   background-image: url("img/jar_inner.png");
-  /* scale inner jar to match larger element */
-  background-size: 98% auto;
+  /* background-size uses percentage of the element size; this will scale with .fs-glass */
+  background-size: 96% auto;
   background-repeat: no-repeat;
   background-position: center bottom;
   pointer-events: none;
@@ -112,8 +117,7 @@ body {
   position: absolute;
   inset: 0;
   background-image: url("img/jar_outer.svg");
-  /* align outer overlay with inner */
-  background-size: 98% auto;
+  background-size: 96% auto;
   background-repeat: no-repeat;
   background-position: center bottom;
   pointer-events: none;
@@ -126,23 +130,19 @@ body {
 .fs-fruit-stack {
   position: relative;
   z-index: 1;
-  /* Make fruit stack narrower so fruit appears smaller relative to the jar */
-  width: 44%;
-  /* height tuned to fit 4 fruits */
-  height: 76%;
+  /* narrower stack so fruits remain visually smaller inside the larger jar */
+  width: 46%;
+  height: 78%;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
   align-items: center;
-  /* modest gap for natural spacing */
-  gap: 6px;
-  /* pull stack into jar so top item can sit above rim if needed */
+  gap: 8px;
   margin-bottom: 6%;
 }
 
 .fs-fruit {
   display: block;
-  /* fruit fills the stack area — stack is intentionally narrower to make fruit smaller */
   max-width: 100%;
   height: auto;
   pointer-events: none;
@@ -151,15 +151,18 @@ body {
 
 /* --- Responsivt --- */
 
-@media (max-width: 1000px) {
+@media (max-width: 1200px) {
+  /* allow smaller screens to reduce the min width */
+  .fs-board {
+    grid-template-columns: repeat(6, minmax(140px, 1fr));
+  }
   .fs-glass {
-    max-width: 220px;
+    max-width: 240px;
   }
   .fs-fruit-stack {
-    width: 46%;
+    width: 50%;
     height: 74%;
-    margin-bottom: 7%;
-    gap: 6px;
+    gap: 7px;
   }
   .fs-jar-inner,
   .fs-jar-outer {
@@ -178,7 +181,7 @@ body {
     width: 52%;
     height: 70%;
     margin-bottom: 9%;
-    gap: 5px;
+    gap: 6px;
   }
   .fs-jar-inner,
   .fs-jar-outer {
