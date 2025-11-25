@@ -517,7 +517,7 @@ function findMinSolutionMoves(startState, usedCount, maxDepth = 18) {
 }
 
 // Scramble using group-pours, avoid immediate reversal, and attempt to produce a board with reasonable minimal solution length
-function performScrambleOnce(state, movesTarget, usedCount, rng, maxAttempts = 2000) {
+function performScrambleOnce(state, movesTarget, rng, maxAttempts = 2000) {
     const total = state.length;
     let attempts = 0;
     let moves = 0;
@@ -546,8 +546,7 @@ function performScrambleOnce(state, movesTarget, usedCount, rng, maxAttempts = 2
     return state;
 }
 
-// Update generateSolvableLevel loop to call the new scramble and validate via solver.
-// Replace the inner loop part where we created 'state' and did performScrambleOnce and finalState detection
+// generate level by reverse-scrambling (group-pour moves), deterministic when seed provided
 function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
     const { glasses: numGlasses, emptyGlasses } = config;
     const nonEmpty = numGlasses - emptyGlasses;
@@ -572,30 +571,49 @@ function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
         return state;
     };
 
-    const maxRetries = 8;
+    const maxRetries = 30;
     let finalState = null;
+
+    // determine reasonable minimal-solve threshold based on board size
+    let minAccept;
+    if (numGlasses >= 10) minAccept = 10;
+    else if (numGlasses >= 8) minAccept = 6;
+    else minAccept = 3;
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
         const state = buildSolvedState();
         // perform extra moves when numGlasses small to ensure mixing
-        const movesTarget = Math.max(scrambleMoves, Math.floor(scrambleMoves * (1 + attempt * 0.25)));
+        const movesTarget = Math.max(scrambleMoves, Math.floor(scrambleMoves * (1 + attempt * 0.3)));
 
-        performScrambleOnce(state, movesTarget, nonEmpty, rng);
+        performScrambleOnce(state, movesTarget, rng);
 
         // pad to MAX_GLASSES
         while (state.length < MAX_GLASSES) state.push([]);
 
-        // validate scrambles by ensuring they can be solved in a reasonable number of moves
-        // allow some slack on first few attempts, then tighten on later attempts
-        const slack = Math.max(0, Math.min(3, Math.floor(attempt / 2)));
-        const minSolve = findMinSolutionMoves(state, numGlasses, 18 - slack);
-        if (minSolve >= 18) continue; // too easy, retry
+        // reject trivial fully-solved states
+        const isAllSolved = (st) => {
+            const used = st.slice(0, numGlasses);
+            return used.every(stack => stack.length === 0 || (stack.length === GLASS_CAPACITY && stack.every(f => f === stack[0])));
+        };
+        if (isAllSolved(state)) {
+            // not a scramble at all, retry
+            continue;
+        }
 
-        finalState = state;
-        break;
+        // validate scrambles by estimating minimal solution depth
+        const solverDepth = Math.max(10, 18 - Math.floor(attempt / 3)); // gradually relax search depth on later attempts
+        const minSolve = findMinSolutionMoves(state, numGlasses, solverDepth);
+
+        // Accept only if solver finds a solution and it's not too easy
+        if (minSolve !== Infinity && minSolve >= minAccept) {
+            finalState = state;
+            break;
+        }
+
+        // otherwise retry (try to get a board with measurable difficulty)
     }
 
-    // fallback: force a single swap to guarantee unsolved
+    // fallback: if we couldn't find an acceptable scramble, return a safe-but-unsolved state
     if (!finalState) {
         const fb = buildSolvedState();
         const total = fb.length;
