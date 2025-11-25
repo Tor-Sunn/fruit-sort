@@ -191,7 +191,7 @@ function drawBoard() {
         if (depth > 0 && i < activeLevel.glasses && stack.length > 0) {
             const topIndex = stack.length - 1;
             // After fruits are in the DOM, we can measure them to align leaves exactly.
-            // Child nodes order: child[0] = top, child[n-1] = bottom
+            // Child nodes order: DOM order = top -> bottom
             const fruitImgs = stackEl.querySelectorAll(".fs-fruit");
 
             for (let k = 1; k <= depth; k++) {
@@ -203,36 +203,56 @@ function drawBoard() {
                 const domIndex = (stack.length - 1) - indexFromBottom; // DOM[0]=top ... DOM[n-1]=bottom
                 const fruitEl = fruitImgs[domIndex];
 
-                const leafEl = document.createElement("div");
-                leafEl.className = "fs-leaf";
-                leafEl.setAttribute("aria-hidden", "true");
-                leafEl.style.position = "absolute";
-                leafEl.style.pointerEvents = "none";
+                // wrapper that will contain <img src="img/leaf.png"> and the question span
+                const leafWrap = document.createElement("div");
+                leafWrap.className = "fs-leaf-wrap";
+                leafWrap.setAttribute("aria-hidden", "true");
+                leafWrap.style.position = "absolute";
+                leafWrap.style.pointerEvents = "none";
 
                 if (fruitEl && fruitEl.clientHeight > 0) {
-                    // position leaf exactly over fruit element
-                    // left: center of fruit relative to stackEl
+                    // position leaf exactly over fruit element (relative to stackEl)
                     const leftPx = fruitEl.offsetLeft + fruitEl.offsetWidth / 2;
-                    // top relative to stackEl
-                    const topPx = fruitEl.offsetTop;
-                    // size: match fruit size (allow leaf to scale slightly)
-                    leafEl.style.width = `${fruitEl.offsetWidth * 1.02}px`;
-                    leafEl.style.height = `${fruitEl.offsetHeight * 1.02}px`;
-                    leafEl.style.left = `${leftPx}px`;
-                    leafEl.style.top = `${topPx}px`;
-                    leafEl.style.transform = `translate(-50%, 0)`;
+                    const topPx = fruitEl.offsetTop; // top inside stackEl
+                    const w = Math.round(fruitEl.offsetWidth * 1.02);
+                    const h = Math.round(fruitEl.offsetHeight * 1.02);
+
+                    leafWrap.style.width = `${w}px`;
+                    leafWrap.style.height = `${h}px`;
+                    leafWrap.style.left = `${leftPx}px`;
+                    leafWrap.style.top = `${topPx}px`;
+                    leafWrap.style.transform = `translate(-50%, 0)`;
                 } else {
-                    // fallback: position by percent computed from overall glass layout (legacy behavior)
+                    // fallback: position by percent computed from overall glass layout
                     const bottomPct = computeLeafBottomPercent(indexFromBottom);
-                    leafEl.style.left = `50%`;
-                    leafEl.style.transform = `translateX(-50%)`;
-                    leafEl.style.bottom = `${bottomPct}%`;
-                    leafEl.style.width = `54%`;
-                    leafEl.style.height = `auto`;
+                    leafWrap.style.left = `50%`;
+                    leafWrap.style.transform = `translateX(-50%)`;
+                    leafWrap.style.bottom = `${bottomPct}%`;
+                    leafWrap.style.width = `54%`;
+                    leafWrap.style.height = `auto`;
                 }
 
+                // leaf image element (fills wrapper)
+                const leafImg = document.createElement("img");
+                leafImg.className = "fs-leaf-img";
+                leafImg.src = "img/leaf.png";
+                leafImg.alt = "leaf";
+                leafImg.draggable = false;
+                leafImg.style.width = "100%";
+                leafImg.style.height = "100%";
+                leafImg.style.objectFit = "contain";
+                leafImg.style.display = "block";
+
+                // centered question badge
+                const q = document.createElement("span");
+                q.className = "fs-leaf-q";
+                q.textContent = "?";
+                // append in order: img under badge
+                leafWrap.appendChild(leafImg);
+                leafWrap.appendChild(q);
+
                 // append to stackEl so leaves follow fruit layout and transforms
-                stackEl.appendChild(leafEl);
+                stackEl.appendChild(leafWrap);
             }
         }
 

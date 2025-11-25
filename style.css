@@ -320,10 +320,52 @@ body {
   pointer-events: none;
 }
 
-/* small reveal/fade helper if you remove leaf elements dynamically */
+/* add these near the .fs-leaf rules (replace previous .fs-leaf and ::after) */
+
+.fs-leaf-wrap {
+  position: absolute;
+  z-index: 8;            /* above fruits */
+  pointer-events: none;  /* clicks pass through */
+  display: block;
+  /* width/height/left/top are set inline from JS for pixel-perfect alignment.
+     when using the percent fallback the JS sets width:54% and bottom:NN% */
+}
+
+.fs-leaf-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* centered question badge over the leaf */
+.fs-leaf-q {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: inline-block;
+  width: 1.8em;
+  height: 1.8em;
+  line-height: 1.8em;
+  border-radius: 999px;
+  background: rgba(0,0,0,0.55);
+  color: #fff;
+  font-weight: 700;
+  font-family: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  font-size: 1em;
+  text-align: center;
+  text-shadow: 0 1px 0 rgba(0,0,0,0.5);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.35);
+  pointer-events: none;
+}
+
+/* legacy fallback class if JS removes leafs but you want a transition */
 .fs-leaf--hidden {
   opacity: 0;
-  transform: translateX(-50%) scale(0.9);
+  transform: scale(0.95);
   transition: opacity 240ms ease, transform 240ms ease;
 }
 
