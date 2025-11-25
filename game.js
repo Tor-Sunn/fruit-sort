@@ -115,21 +115,27 @@ function positionLeaves() {
             // center over fruit
             const leftPx = fruitEl.offsetLeft + fruitEl.offsetWidth / 2;
             const topPx = fruitEl.offsetTop + fruitEl.offsetHeight / 2;
-            const wSize = Math.round(fruitEl.offsetWidth * 1.25); // make leaf larger (1.25x)
-            const hSize = Math.round(fruitEl.offsetHeight * 1.25);
+            // increase leaf size to better cover fruit (was 1.25)
+            const wSize = Math.round(fruitEl.offsetWidth * 1.40); // <- increased
+            const hSize = Math.round(fruitEl.offsetHeight * 1.40);
 
+            // lower the leaf a little so it covers the lower half of the fruit more
+            const extraY = Math.round(fruitEl.offsetHeight * 0.10); // 10% of fruit height downward
             w.style.width = `${wSize}px`;
             w.style.height = `${hSize}px`;
             w.style.left = `${leftPx}px`;
-            w.style.top = `${topPx}px`;
+            // move center slightly down
+            w.style.top = `${topPx + extraY}px`;
             w.style.transform = `translate(-50%, -50%)`;
         } else {
             // fallback percent placement (when measurements not available)
             const bottomPct = computeLeafBottomPercent(coveredIndex);
+            // lower fallback by a couple percent as well
+            const lowered = Math.max(0, bottomPct - 2);
             w.style.left = `50%`;
             w.style.transform = `translateX(-50%)`;
-            w.style.bottom = `${bottomPct}%`;
-            w.style.width = `54%`;
+            w.style.bottom = `${lowered}%`;
+            w.style.width = `60%`; // increase fallback width from 54% -> 60%
             w.style.height = `auto`;
             w.style.top = ""; // clear top
         }
@@ -249,7 +255,7 @@ function drawBoard() {
                 leafWrap.style.left = "50%";
                 leafWrap.style.transform = "translateX(-50%)";
                 leafWrap.style.bottom = `${bottomPct}%`;
-                leafWrap.style.width = `54%`;
+                leafWrap.style.width = `60%`; // increased fallback width
                 leafWrap.style.height = `auto`;
 
                 // leaf image element (fills wrapper)
