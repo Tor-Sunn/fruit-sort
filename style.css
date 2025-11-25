@@ -68,8 +68,8 @@ body {
 .fs-glass {
   position: relative;
   width: 100%;
-  /* Increased jar width so jars are larger on screen */
-  max-width: 140px;
+  /* increased jar width so jars are clearly larger */
+  max-width: 180px;
   aspect-ratio: 3 / 5;
   margin-inline: auto;
   display: flex;
@@ -99,8 +99,8 @@ body {
   position: absolute;
   inset: 0;
   background-image: url("img/jar_inner.png");
-  /* make inner jar scale to the element size */
-  background-size: 95% auto;
+  /* scale inner jar to match larger element */
+  background-size: 90% auto;
   background-repeat: no-repeat;
   background-position: center bottom;
   pointer-events: none;
@@ -112,8 +112,8 @@ body {
   position: absolute;
   inset: 0;
   background-image: url("img/jar_outer.svg");
-  /* keep outer overlay aligned with inner */
-  background-size: 95% auto;
+  /* align outer overlay with inner */
+  background-size: 90% auto;
   background-repeat: no-repeat;
   background-position: center bottom;
   pointer-events: none;
@@ -126,52 +126,44 @@ body {
 .fs-fruit-stack {
   position: relative;
   z-index: 1;
-  /* reduce width so fruits appear a bit smaller relative to jar */
-  width: 52%;
-  /* increase height slightly to give room for 4 fruits */
-  height: 76%;
+  /* slightly wider stack so fruit is larger inside jar */
+  width: 64%;
+  /* height tuned to fit 4 large fruits comfortably */
+  height: 78%;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
   align-items: center;
-  /* remove built-in gap and use negative margins to tighten stacking */
-  gap: 0;
-  margin-bottom: 8%;
+  /* small positive gap provides natural separation between fruits */
+  gap: 8px;
+  /* pull stack a bit into the jar so top item can sit above rim visually */
+  margin-bottom: 6%;
 }
 
 .fs-fruit {
   display: block;
-  /* shrink fruit images a bit so they fit visually inside larger jar */
-  max-width: 85%;
+  /* larger fruit size to match your screenshot */
+  max-width: 95%;
   height: auto;
   pointer-events: none;
-  /* ensure smooth scaling */
   object-fit: contain;
-}
-
-/* tighten vertical spacing between stacked fruits by pulling subsequent images up */
-.fs-fruit + .fs-fruit {
-  margin-top: -10px;
-}
-
-/* don't pull the very top item (if needed) too far */
-.fs-fruit-stack > .fs-fruit:last-child {
-  margin-top: 0;
 }
 
 /* --- Responsivt --- */
 
 @media (max-width: 1000px) {
   .fs-glass {
-    max-width: 120px;
+    max-width: 150px;
   }
   .fs-fruit-stack {
-    width: 54%;
-    height: 72%;
-    margin-bottom: 9%;
+    width: 62%;
+    height: 74%;
+    margin-bottom: 7%;
+    gap: 7px;
   }
-  .fs-fruit + .fs-fruit {
-    margin-top: -8px;
+  .fs-jar-inner,
+  .fs-jar-outer {
+    background-size: 88% auto;
   }
 }
 
@@ -180,15 +172,17 @@ body {
     grid-template-columns: repeat(3, 1fr);
   }
   .fs-glass {
-    max-width: 110px;
+    max-width: 120px;
   }
   .fs-fruit-stack {
-    width: 58%;
-    height: 68%;
-    margin-bottom: 10%;
+    width: 66%;
+    height: 70%;
+    margin-bottom: 9%;
+    gap: 6px;
   }
-  .fs-fruit + .fs-fruit {
-    margin-top: -6px;
+  .fs-jar-inner,
+  .fs-jar-outer {
+    background-size: 86% auto;
   }
 }
 
