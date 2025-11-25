@@ -120,7 +120,7 @@ function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
     const buildSolvedState = () => {
         const state = chosen.map(f => Array.from({ length: GLASS_CAPACITY }, () => f));
         for (let i = 0; i < emptyGlasses; i++) state.push([]);
-        // pad to requested number of glasses (numGlasses) - rest of MAX_GLASSES added later
+        // pad to requested number of glasses (numGlasses)
         while (state.length < numGlasses) state.push([]);
         return state;
     };
@@ -136,7 +136,7 @@ function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
     const performScramble = (state) => {
         let attempts = 0;
         let moves = 0;
-        const maxAttempts = Math.max(100, scrambleMoves * 12);
+        const maxAttempts = Math.max(200, scrambleMoves * 18);
         const total = state.length;
 
         while (moves < scrambleMoves && attempts < maxAttempts) {
@@ -160,11 +160,11 @@ function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
         }
 
         // If we barely moved anything, force a few simple pours to break solved state.
-        if (moves < Math.max(1, Math.floor(scrambleMoves / 6))) {
+        if (moves < Math.max(1, Math.floor(scrambleMoves / 4))) {
             let forced = 0;
             const total = state.length;
-            for (let i = 0; i < total && forced < 6; i++) {
-                for (let j = 0; j < total && forced < 6; j++) {
+            for (let i = 0; i < total && forced < 10; i++) {
+                for (let j = 0; j < total && forced < 10; j++) {
                     if (isValidPour(i, j, state)) {
                         const topFruit = state[i][state[i].length - 1];
                         let sameCount = 0;
@@ -187,32 +187,32 @@ function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
         return state;
     };
 
-    // retry scramble attempts if result is still "solved"
-    const maxRetries = 6;
+    // If scramble produces a board with too few unsolved jars, retry a few times.
+    const maxRetries = 10;
+    const minNotSolved = Math.max(2, Math.ceil(nonEmpty / 3)); // require at least this many jars not solved
     let finalState = null;
+
     for (let attempt = 0; attempt < maxRetries; attempt++) {
         const state = buildSolvedState();
         performScramble(state);
 
-        // check if unsolved
         const used = state.slice(0, numGlasses);
-        const allOk = used.every(stack => stack.length === 0 || isGlassComplete(stack));
-        if (!allOk) {
+        const notSolvedCount = used.filter(stack => !(stack.length === 0 || isGlassComplete(stack))).length;
+
+        if (notSolvedCount >= minNotSolved) {
             finalState = state;
             break;
         }
 
-        // if seed provided, advance RNG deterministically for next attempt
+        // advance deterministic RNG between attempts so seeded results vary predictably
         if (seed != null) {
-            // consume a few random values to vary next attempt deterministically
-            for (let k = 0; k < (attempt + 1) * 7; k++) rng();
+            for (let k = 0; k < (attempt + 1) * 11; k++) rng();
         }
     }
 
     // fallback: if still null, build one last time and force a small swap so it's not solved
     if (!finalState) {
         finalState = buildSolvedState();
-        // force move: find first valid pour and do one unit
         const total = finalState.length;
         outer:
         for (let i = 0; i < total; i++) {
@@ -634,11 +634,15 @@ function startNewGame(options = {}) {
     for (let k = 0; k < toCover; k++) {
         const idx = candidateIndices[k];
         const stackLen = glasses[idx].length;
+
+        // Skip covering already-complete jars — don't hide jars that are already fully sorted.
+        if (isGlassComplete(glasses[idx])) continue;
         if (stackLen <= 1) continue;
 
         const makeFullCover = Math.random() < (preset.fullCoverProb || 0.2);
 
         if (makeFullCover) {
+            // require at most the number of fruits present; avoid nonsensical fullCover values
             const required = randInt(1, Math.max(1, Math.min(stackLen, GLASS_CAPACITY)));
             coveredPositions[idx] = { fullCover: required };
             initialCoveredPositions[idx] = [];
