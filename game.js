@@ -45,14 +45,13 @@ let activeLevel = { ...DEFAULT_LEVEL_CONFIG };
 let selectedGlassIndex = null;
 let moves = 0;
 
-// coveredMap: index -> depth (how many fruits below the top are covered).
-// Example: depth = 2 means the fruits at positions top-1 and top-2 are each covered with a leaf.
-let coveredMap = {};
+// initialCoveredPositions: index -> array of absolute indices (index-from-bottom) that were covered at game start.
+// Example: initialCoveredPositions[2] = [1,2] means at start jar 2 had leaves covering the fruits at bottom-index 1 and 2.
+let initialCoveredPositions = {};
 
-// initialCoveredMap stores the initial cover configuration assigned at start of a board.
-// This prevents new covers from being "generated" mid-game; drawBoard will only render leaves
-// for glasses that were covered when the board was created.
-let initialCoveredMap = {};
+// coveredPositions: mutable remaining covered absolute indices for each glass. Leaves are rendered only for positions
+// present here. When a covered fruit becomes visible (top reaches that index), we remove the absolute index.
+let coveredPositions = {};
 
 // Throttle scheduling for positionLeaves so we don't run it excessively while images load.
 const schedulePositionLeaves = (() => {
@@ -113,12 +112,12 @@ function computeLeafBottomPercent(indexFromBottom) {
 }
 
 // Position all leaf wrappers to match their fruit elements.
-// Uses data attributes set on .fs-leaf-wrap: data-glass and data-covered-index.
+// Uses data attributes set on .fs-leaf-wrap: data-glass and data-covered-index (absolute index-from-bottom).
 function positionLeaves() {
     const wraps = document.querySelectorAll(".fs-leaf-wrap");
     wraps.forEach(w => {
         const glassIndex = Number(w.dataset.glass);
-        const coveredIndex = Number(w.dataset.coveredIndex); // index from bottom
+        const coveredIndex = Number(w.dataset.coveredIndex); // absolute index-from-bottom
         const glassEl = document.querySelector(`.fs-glass[data-index="${glassIndex}"]`);
         if (!glassEl) return;
         const stackEl = glassEl.querySelector(".fs-fruit-stack");
@@ -266,28 +265,26 @@ function drawBoard() {
 
         glassEl.appendChild(stackEl);
 
-        // If this glass index was covered at the start of the board, render one leaf per remaining covered fruit.
-        // This prevents new leaves from being generated mid-game.
-        const initialDepth = initialCoveredMap[i] || 0;
-        const depth = initialDepth > 0 ? (coveredMap[i] || 0) : 0;
+        // Render leaves for the absolute positions that were covered at start and still exist in coveredPositions.
+        const initialPositions = initialCoveredPositions[i] || [];
+        const remainingPositions = coveredPositions[i] || [];
 
-        if (depth > 0 && i < activeLevel.glasses && stack.length > 0) {
-            const topIndex = stack.length - 1;
+        if (initialPositions.length > 0 && remainingPositions.length > 0 && i < activeLevel.glasses && stack.length > 0) {
+            // iterate over remainingPositions (absolute indices). They should remain fixed relative to the jar bottom.
+            // Sort descending so we append leaves top-to-bottom (not required but stable).
+            remainingPositions.slice().sort((a,b) => b - a).forEach(pos => {
+                // Only render if the position still exists in the current stack (safety check)
+                if (pos < 0 || pos > stack.length - 1) return;
 
-            for (let k = 1; k <= depth; k++) {
-                const coveredIndex = topIndex - k;
-                if (coveredIndex < 0) break;
-
-                // wrapper that will contain <img src="img/leaf.png"> and the question span
                 const leafWrap = document.createElement("div");
                 leafWrap.className = "fs-leaf-wrap";
                 leafWrap.setAttribute("aria-hidden", "true");
                 leafWrap.dataset.glass = String(i);
-                // store index-from-bottom so positionLeaves can map it (absolute index from bottom)
-                leafWrap.dataset.coveredIndex = String(coveredIndex);
+                // dataset.coveredIndex now holds the absolute index-from-bottom (fixed)
+                leafWrap.dataset.coveredIndex = String(pos);
 
                 // initial fallback sizing (will be corrected by positionLeaves)
-                const bottomPct = computeLeafBottomPercent(coveredIndex);
+                const bottomPct = computeLeafBottomPercent(pos);
                 leafWrap.style.left = "50%";
                 leafWrap.style.transform = "translateX(-50%)";
                 leafWrap.style.bottom = `${bottomPct}%`;
@@ -310,7 +307,6 @@ function drawBoard() {
                 leafImg.addEventListener('load', schedulePositionLeaves);
                 leafImg.addEventListener('error', schedulePositionLeaves);
 
-                // centered question badge
                 const q = document.createElement("span");
                 q.className = "fs-leaf-q";
                 q.textContent = "?";
@@ -320,7 +316,7 @@ function drawBoard() {
 
                 // append to stackEl so leaves follow fruit layout and transforms
                 stackEl.appendChild(leafWrap);
-            }
+            });
         }
 
         boardEl.appendChild(glassEl);
@@ -335,8 +331,6 @@ function drawBoard() {
 
 function handleGlassClick(index) {
     if (index >= activeLevel.glasses) return;
-
-    // Clicking a covered jar no longer reveals it. Gameplay: must remove top fruit(s) by legal moves first.
 
     const stack = glasses[index];
 
@@ -417,21 +411,27 @@ function handleGlassClick(index) {
     selectedGlassIndex = null;
 
     // Reveal logic for covers on the source jar:
-    if (removedCount > 0 && coveredMap[from] && coveredMap[from] > 0) {
-        coveredMap[from] = Math.max(0, coveredMap[from] - 1);
-
-        const newStack = glasses[from];
-        const newTop = newStack.length - 1;
-        if ((coveredMap[from] > 0) && newTop >= 1) {
-            const visibleFruit = newStack[newTop];
-            const nextCoveredIndex = newTop - 1;
-            if (nextCoveredIndex >= 0 && newStack[nextCoveredIndex] === visibleFruit) {
-                coveredMap[from] = Math.max(0, coveredMap[from] - 1);
-            }
+    // We now track absolute covered positions; when the top of the stack reaches a covered position,
+    // that covered position is revealed (leaf removed). Remove as many covered positions as become visible.
+    if (removedCount > 0 && coveredPositions[from] && coveredPositions[from].length > 0) {
+        let newTop = glasses[from].length - 1;
+        // continue removing while there's a covered position exactly at the current top
+        // (this handles chain reveals if multiple covered positions become visible)
+        // coveredPositions[from] is an array of absolute indices.
+        // We'll loop until no covered pos equals newTop.
+        let remaining = coveredPositions[from];
+        // Make a Set for quick lookup
+        const remSet = new Set(remaining);
+        while (remSet.has(newTop)) {
+            remSet.delete(newTop);
+            newTop--;
+            if (newTop < 0) break;
         }
-
-        if (coveredMap[from] === 0) {
-            delete coveredMap[from];
+        const updated = Array.from(remSet).sort((a,b) => a - b);
+        if (updated.length === 0) {
+            delete coveredPositions[from];
+        } else {
+            coveredPositions[from] = updated;
         }
     }
 
@@ -462,8 +462,9 @@ function startNewGame() {
     activeLevel = { ...DEFAULT_LEVEL_CONFIG };
     glasses = generateLevel(activeLevel);
 
-    // Choose random non-empty used glasses to cover with leaves (depth = number of covered fruits)
-    initialCoveredMap = {};
+    // Choose random non-empty used glasses to cover with leaves (store absolute indices)
+    initialCoveredPositions = {};
+    coveredPositions = {};
     const candidateIndices = [];
     for (let i = 0; i < activeLevel.glasses; i++) {
         if (glasses[i] && glasses[i].length > 0) candidateIndices.push(i);
@@ -477,11 +478,18 @@ function startNewGame() {
         // depth = how many fruits below the top are initially covered (1..stackLen-1)
         const maxDepth = Math.min(stackLen - 1, GLASS_CAPACITY - 1);
         const depth = randInt(1, maxDepth);
-        initialCoveredMap[idx] = depth;
-    }
 
-    // coveredMap holds the mutable remaining covered count; start as a copy of initialCoveredMap
-    coveredMap = { ...initialCoveredMap };
+        const topIndex = stackLen - 1;
+        const positions = [];
+        for (let j = 1; j <= depth; j++) {
+            const absIndex = topIndex - j; // absolute index-from-bottom
+            if (absIndex >= 0) positions.push(absIndex);
+        }
+        if (positions.length > 0) {
+            initialCoveredPositions[idx] = positions.slice();
+            coveredPositions[idx] = positions.slice(); // start mutable set as copy
+        }
+    }
 
     selectedGlassIndex = null;
     drawBoard();
