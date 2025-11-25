@@ -134,9 +134,10 @@ function drawBoard() {
       glassEl.classList.add("fs-glass--selected");
     }
 
-    const jarEl = document.createElement("div");
-    jarEl.className = "fs-jar";
-    glassEl.appendChild(jarEl);
+    // Jar inner (under frukten)
+    const jarInnerEl = document.createElement("div");
+    jarInnerEl.className = "fs-jar-inner";
+    glassEl.appendChild(jarInnerEl);
 
     const stackEl = document.createElement("div");
     stackEl.className = "fs-fruit-stack";
@@ -151,6 +152,12 @@ function drawBoard() {
     });
 
     glassEl.appendChild(stackEl);
+
+    // Jar outer (overlay over frukten)
+    const jarOuterEl = document.createElement("div");
+    jarOuterEl.className = "fs-jar-outer";
+    glassEl.appendChild(jarOuterEl);
+
     boardEl.appendChild(glassEl);
   }
 }
