@@ -393,6 +393,8 @@ function handleGlassClick(index) {
     }
 
     // Move up to min(sameCount, available)
+    // Record previous top index before we modify the stack so we can compute which covered positions became visible.
+    const previousTop = fromStack.length - 1;
     const toMove = Math.min(sameCount, available);
     const movedFruits = [];
     for (let i = 0; i < toMove; i++) {
@@ -414,20 +416,15 @@ function handleGlassClick(index) {
     // We now track absolute covered positions; when the top of the stack reaches a covered position,
     // that covered position is revealed (leaf removed). Remove as many covered positions as become visible.
     if (removedCount > 0 && coveredPositions[from] && coveredPositions[from].length > 0) {
+        // newTop after the move
         let newTop = glasses[from].length - 1;
-        // continue removing while there's a covered position exactly at the current top
-        // (this handles chain reveals if multiple covered positions become visible)
-        // coveredPositions[from] is an array of absolute indices.
-        // We'll loop until no covered pos equals newTop.
-        let remaining = coveredPositions[from];
-        // Make a Set for quick lookup
-        const remSet = new Set(remaining);
-        while (remSet.has(newTop)) {
-            remSet.delete(newTop);
-            newTop--;
-            if (newTop < 0) break;
-        }
-        const updated = Array.from(remSet).sort((a,b) => a - b);
+
+        const remaining = coveredPositions[from] || [];
+
+        // Remove only the covered indices that became visible during this move.
+        // Those are indices in the inclusive range [newTop, previousTop].
+        const updated = remaining.filter(p => !(p >= newTop && p <= previousTop)).sort((a,b) => a - b);
+
         if (updated.length === 0) {
             delete coveredPositions[from];
         } else {
