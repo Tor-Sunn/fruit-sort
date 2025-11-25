@@ -146,13 +146,17 @@ function drawBoard() {
     stackEl.className = "fs-fruit-stack";
 
     const stack = glasses[i];
-    stack.forEach(fruitName => {
+
+    // Render stack so the array end (top) maps to the visual top of the jar.
+    // We append the top item first so visual order matches stack semantics.
+    for (let s = stack.length - 1; s >= 0; s--) {
+      const fruitName = stack[s];
       const img = document.createElement("img");
       img.className = "fs-fruit";
       img.src = `img/${fruitName}.png`;
       img.alt = fruitName;
       stackEl.appendChild(img);
-    });
+    }
 
     glassEl.appendChild(stackEl);
 
