@@ -49,6 +49,11 @@ let moves = 0;
 // Example: depth = 2 means the fruits at positions top-1 and top-2 are each covered with a leaf.
 let coveredMap = {};
 
+// initialCoveredMap stores the initial cover configuration assigned at start of a board.
+// This prevents new covers from being "generated" mid-game; drawBoard will only render leaves
+// for glasses that were covered when the board was created.
+let initialCoveredMap = {};
+
 // ---- HJELPERE ----
 
 function shuffle(array) {
@@ -136,8 +141,9 @@ function positionLeaves() {
             w.style.left = `50%`;
             w.style.transform = `translateX(-50%)`;
             w.style.bottom = `${lowered}%`;
-            w.style.width = `66%`; // slightly bigger fallback
-            w.style.height = `auto`;
+            // use explicit percent height to avoid very small leaves from intrinsic img size
+            w.style.width = `66%`;
+            w.style.height = `66%`;
             w.style.top = ""; // clear top
         }
     });
@@ -235,8 +241,11 @@ function drawBoard() {
 
         glassEl.appendChild(stackEl);
 
-        // If this glass index has a cover depth > 0, render one leaf per covered fruit.
-        const depth = coveredMap[i] || 0;
+        // If this glass index was covered at the start of the board, render one leaf per remaining covered fruit.
+        // This prevents new leaves from being generated mid-game.
+        const initialDepth = initialCoveredMap[i] || 0;
+        const depth = initialDepth > 0 ? (coveredMap[i] || 0) : 0;
+
         if (depth > 0 && i < activeLevel.glasses && stack.length > 0) {
             const topIndex = stack.length - 1;
 
@@ -249,7 +258,7 @@ function drawBoard() {
                 leafWrap.className = "fs-leaf-wrap";
                 leafWrap.setAttribute("aria-hidden", "true");
                 leafWrap.dataset.glass = String(i);
-                // store index-from-bottom so positionLeaves can map it
+                // store index-from-bottom so positionLeaves can map it (absolute index from bottom)
                 leafWrap.dataset.coveredIndex = String(coveredIndex);
 
                 // initial fallback sizing (will be corrected by positionLeaves)
@@ -257,8 +266,9 @@ function drawBoard() {
                 leafWrap.style.left = "50%";
                 leafWrap.style.transform = "translateX(-50%)";
                 leafWrap.style.bottom = `${bottomPct}%`;
+                // use explicit percent height to avoid very small leaves (don't rely on 'auto')
                 leafWrap.style.width = `66%`;
-                leafWrap.style.height = `auto`;
+                leafWrap.style.height = `66%`;
 
                 // leaf image element (fills wrapper)
                 const leafImg = document.createElement("img");
@@ -266,6 +276,9 @@ function drawBoard() {
                 leafImg.src = "img/leaf.png";
                 leafImg.alt = "leaf";
                 leafImg.draggable = false;
+                // ensure the image fills the wrapper so we don't get tiny intrinsic sizes
+                leafImg.style.width = "100%";
+                leafImg.style.height = "100%";
 
                 // centered question badge
                 const q = document.createElement("span");
@@ -418,7 +431,7 @@ function startNewGame() {
     glasses = generateLevel(activeLevel);
 
     // Choose random non-empty used glasses to cover with leaves (depth = number of covered fruits)
-    coveredMap = {};
+    initialCoveredMap = {};
     const candidateIndices = [];
     for (let i = 0; i < activeLevel.glasses; i++) {
         if (glasses[i] && glasses[i].length > 0) candidateIndices.push(i);
@@ -432,8 +445,11 @@ function startNewGame() {
         // depth = how many fruits below the top are initially covered (1..stackLen-1)
         const maxDepth = Math.min(stackLen - 1, GLASS_CAPACITY - 1);
         const depth = randInt(1, maxDepth);
-        coveredMap[idx] = depth;
+        initialCoveredMap[idx] = depth;
     }
+
+    // coveredMap holds the mutable remaining covered count; start as a copy of initialCoveredMap
+    coveredMap = { ...initialCoveredMap };
 
     selectedGlassIndex = null;
     drawBoard();
