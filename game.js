@@ -134,10 +134,10 @@ function drawBoard() {
       glassEl.classList.add("fs-glass--selected");
     }
 
-    // drawBoard() — create jar imgs instead of background divs
+    // Jar inner as an <img> (under fruits)
     const jarInnerImg = document.createElement("img");
     jarInnerImg.className = "fs-jar-inner-img";
-    jarInnerImg.src = "img/jar_inner.png"; // or jar_inner_trim.png
+    jarInnerImg.src = "img/jar_inner.png"; // use trimmed/cropped version for best results
     jarInnerImg.alt = "jar inner";
     jarInnerImg.draggable = false;
     glassEl.appendChild(jarInnerImg);
@@ -156,13 +156,7 @@ function drawBoard() {
 
     glassEl.appendChild(stackEl);
 
-    const jarOuterImg = document.createElement("img");
-    jarOuterImg.className = "fs-jar-outer-img";
-    jarOuterImg.src = "img/jar_outer.svg";
-    jarOuterImg.alt = "jar outer";
-    jarOuterImg.draggable = false;
-    glassEl.appendChild(jarOuterImg);
-
+    // NOTE: removed jarOuterImg (svg overlay) — it created an unnatural outline
     boardEl.appendChild(glassEl);
   }
 }

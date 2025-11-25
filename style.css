@@ -98,50 +98,20 @@ body {
   outline-offset: 2px;
 }
 
-/* Jar grafikklag: inner under frukt, outer over frukt */
+/* Jar grafikklag: inner under frukt (img-based) */
 
-.fs-jar-inner {
-  position: absolute;
-  inset: 0;
-  background-image: url("img/jar_inner.png");
-  /* background-size uses percentage of the element size; this will scale with .fs-glass */
-  background-size: 96% auto;
-  background-repeat: no-repeat;
-  background-position: center bottom;
-  pointer-events: none;
-  z-index: 0;
-  opacity: 0.98;
-}
-
-.fs-jar-outer {
-  position: absolute;
-  inset: 0;
-  background-image: url("img/jar_outer.svg");
-  background-size: 96% auto;
-  background-repeat: no-repeat;
-  background-position: center bottom;
-  pointer-events: none;
-  z-index: 2;
-  opacity: 1;
-}
-
-/* new rules for img-based jars */
-.fs-jar-inner-img,
-.fs-jar-outer-img {
+.fs-jar-inner-img {
   position: absolute;
   left: 50%;
   top: 50%;
+  /* width controls jar visual size relative to .fs-glass */
   width: 92%;
   height: auto;
-  transform: translate(-50%, -6%); /* slight vertical nudge so top fruit can sit above rim */
+  transform: translate(-50%, -6%); /* small vertical nudge so fruits can sit above rim */
   object-fit: contain;
   pointer-events: none;
   z-index: 0;
-}
-
-.fs-jar-outer-img {
-  z-index: 2;
-  transform: translate(-50%, -6%);
+  opacity: 0.98;
 }
 
 /* Frukt-stack inni glasset (midtre lag) */
@@ -149,7 +119,6 @@ body {
 .fs-fruit-stack {
   position: relative;
   z-index: 1;
-  /* narrower stack so fruits remain visually smaller inside the larger jar */
   width: 46%;
   height: 78%;
   display: flex;
