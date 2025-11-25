@@ -100,14 +100,16 @@ body {
 
 /* Jar grafikklag: inner under frukt (img-based) */
 
+/* Anchor jar image to the bottom of the glass so rim lines up predictably.
+   This makes the fruit-stack bottom align visually with the jar interior. */
 .fs-jar-inner-img {
   position: absolute;
   left: 50%;
-  top: 50%;
+  bottom: 4%;
   /* width controls jar visual size relative to .fs-glass */
   width: 92%;
   height: auto;
-  transform: translate(-50%, -2%); /* small vertical nudge so fruits can sit above rim */
+  transform: translateX(-50%);
   object-fit: contain;
   pointer-events: none;
   z-index: 0;
@@ -117,22 +119,22 @@ body {
 /* Frukt-stack inni glasset (midtre lag) */
 
 /* Positioned absolute so stack sits flush to bottom of jar.
-   Reduced stack height and moved bottom anchor down so fruits start lower inside the jar. */
+   Lowered and shortened the stack so fruits start deeper inside the jar. */
 .fs-fruit-stack {
   position: absolute;
   z-index: 1;
   left: 50%;
   transform: translateX(-50%);
   width: 46%;
-  /* lowered stack so it doesn't fill entire jar and so fruits sit deeper */
-  height: 64%;
-  /* small gap from jar bottom; reduce this to push fruits lower */
-  bottom: 4%;
+  /* stack occupies the lower portion of the jar graphic */
+  height: 58%;
+  /* anchor a little above true bottom so fruits sit inside rim */
+  bottom: 10%;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
 }
 
 /* Slightly larger fruit but still constrained so 4 items fit nicely.
@@ -145,8 +147,8 @@ body {
   pointer-events: none;
   object-fit: contain;
   object-position: center bottom;
-  /* increased to make fruit a bit larger visually */
-  max-height: 24%;
+  /* increased so fruits are a bit larger visually */
+  max-height: 26%;
 }
 
 /* --- Responsivt --- */
@@ -159,14 +161,18 @@ body {
   .fs-glass {
     max-width: 240px;
   }
+  .fs-jar-inner-img {
+    bottom: 4%;
+    width: 96%;
+  }
   .fs-fruit-stack {
     width: 50%;
-    height: 60%;
-    gap: 7px;
-    bottom: 4%;
+    height: 56%;
+    gap: 6px;
+    bottom: 9%;
   }
   .fs-fruit {
-    max-height: 22%;
+    max-height: 24%;
   }
   .fs-jar-inner,
   .fs-jar-outer {
@@ -181,14 +187,18 @@ body {
   .fs-glass {
     max-width: 160px;
   }
+  .fs-jar-inner-img {
+    bottom: 4%;
+    width: 94%;
+  }
   .fs-fruit-stack {
     width: 52%;
-    height: 56%;
-    bottom: 4%;
+    height: 52%;
+    bottom: 8%;
     gap: 6px;
   }
   .fs-fruit {
-    max-height: 20%;
+    max-height: 22%;
   }
   .fs-jar-inner,
   .fs-jar-outer {
