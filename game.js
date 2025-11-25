@@ -186,23 +186,53 @@ function drawBoard() {
         glassEl.appendChild(stackEl);
 
         // If this glass index has a cover depth > 0, render one leaf per covered fruit.
-        // Leaves are positioned using bottom percent so they align with the corresponding fruit.
+        // NEW: append leaves into stackEl (same container as fruits) and position them over the actual fruit element.
         const depth = coveredMap[i] || 0;
         if (depth > 0 && i < activeLevel.glasses && stack.length > 0) {
             const topIndex = stack.length - 1;
-            // We cover fruits below the top: k = 1..depth -> coveredIndex = topIndex - k
+            // After fruits are in the DOM, we can measure them to align leaves exactly.
+            // Child nodes order: child[0] = top, child[n-1] = bottom
+            const fruitImgs = stackEl.querySelectorAll(".fs-fruit");
+
             for (let k = 1; k <= depth; k++) {
                 const coveredIndex = topIndex - k;
                 if (coveredIndex < 0) break;
                 const indexFromBottom = coveredIndex; // 0 = bottom
+
+                // map coveredIndex to DOM index of fruit image:
+                const domIndex = (stack.length - 1) - indexFromBottom; // DOM[0]=top ... DOM[n-1]=bottom
+                const fruitEl = fruitImgs[domIndex];
+
                 const leafEl = document.createElement("div");
                 leafEl.className = "fs-leaf";
                 leafEl.setAttribute("aria-hidden", "true");
-                // compute bottom percent
-                const bottomPct = computeLeafBottomPercent(indexFromBottom);
-                leafEl.style.bottom = `${bottomPct}%`;
-                // each leaf sits centered (CSS already uses left:50% and translateX(-50%))
-                glassEl.appendChild(leafEl);
+                leafEl.style.position = "absolute";
+                leafEl.style.pointerEvents = "none";
+
+                if (fruitEl && fruitEl.clientHeight > 0) {
+                    // position leaf exactly over fruit element
+                    // left: center of fruit relative to stackEl
+                    const leftPx = fruitEl.offsetLeft + fruitEl.offsetWidth / 2;
+                    // top relative to stackEl
+                    const topPx = fruitEl.offsetTop;
+                    // size: match fruit size (allow leaf to scale slightly)
+                    leafEl.style.width = `${fruitEl.offsetWidth * 1.02}px`;
+                    leafEl.style.height = `${fruitEl.offsetHeight * 1.02}px`;
+                    leafEl.style.left = `${leftPx}px`;
+                    leafEl.style.top = `${topPx}px`;
+                    leafEl.style.transform = `translate(-50%, 0)`;
+                } else {
+                    // fallback: position by percent computed from overall glass layout (legacy behavior)
+                    const bottomPct = computeLeafBottomPercent(indexFromBottom);
+                    leafEl.style.left = `50%`;
+                    leafEl.style.transform = `translateX(-50%)`;
+                    leafEl.style.bottom = `${bottomPct}%`;
+                    leafEl.style.width = `54%`;
+                    leafEl.style.height = `auto`;
+                }
+
+                // append to stackEl so leaves follow fruit layout and transforms
+                stackEl.appendChild(leafEl);
             }
         }
 

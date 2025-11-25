@@ -285,13 +285,6 @@ body {
 /* leaf overlay (use your img/leaf.png) */
 .fs-leaf {
   position: absolute;
-  left: 50%;
-  /* position should match the fruit vertical position where the leaf will sit */
-  top: 28%;
-  transform: translateX(-50%) scale(1);
-  /* size tuned to match the fruit visuals — tweak percent if needed */
-  width: 54%;
-  height: auto;
   z-index: 8;            /* above fruits */
   pointer-events: none;  /* clicks pass through */
   background-image: url("img/leaf.png");
@@ -301,6 +294,7 @@ body {
   opacity: 0.98;
   filter: drop-shadow(0 6px 12px rgba(0,0,0,0.28));
   transition: transform 160ms ease, opacity 160ms ease;
+  /* we set left/top/width/height inline in JS to match the fruit */
 }
 
 /* question-mark badge centered over leaf */
