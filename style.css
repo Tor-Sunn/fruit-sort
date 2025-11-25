@@ -116,26 +116,26 @@ body {
 
 /* Frukt-stack inni glasset (midtre lag) */
 
-/* Changed to absolute so stack sits flush to bottom of jar.
-   Centered horizontally and kept flex-end so fruits stack from bottom up. */
+/* Positioned absolute so stack sits flush to bottom of jar.
+   Reduced stack height and moved bottom anchor down so fruits start lower inside the jar. */
 .fs-fruit-stack {
   position: absolute;
   z-index: 1;
   left: 50%;
   transform: translateX(-50%);
   width: 46%;
-  /* slightly taller to allow marginally bigger fruits */
-  height: 82%;
-  bottom: 6%;
+  /* lowered stack so it doesn't fill entire jar and so fruits sit deeper */
+  height: 64%;
+  /* small gap from jar bottom; reduce this to push fruits lower */
+  bottom: 4%;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
   align-items: center;
   gap: 6px;
-  /* removed margin-bottom (we anchor with bottom) */
 }
 
-/* Increase fruit size slightly but keep them constrained so 4 items still fit.
+/* Slightly larger fruit but still constrained so 4 items fit nicely.
    object-position center bottom keeps visuals hugging the jar bottom. */
 .fs-fruit {
   display: block;
@@ -145,8 +145,8 @@ body {
   pointer-events: none;
   object-fit: contain;
   object-position: center bottom;
-  /* a touch larger than before (was 19.5%) */
-  max-height: 21%;
+  /* increased to make fruit a bit larger visually */
+  max-height: 24%;
 }
 
 /* --- Responsivt --- */
@@ -161,12 +161,12 @@ body {
   }
   .fs-fruit-stack {
     width: 50%;
-    height: 76%;
+    height: 60%;
     gap: 7px;
-    bottom: 6%;
+    bottom: 4%;
   }
   .fs-fruit {
-    max-height: 20%;
+    max-height: 22%;
   }
   .fs-jar-inner,
   .fs-jar-outer {
@@ -183,12 +183,12 @@ body {
   }
   .fs-fruit-stack {
     width: 52%;
-    height: 70%;
-    bottom: 6%;
+    height: 56%;
+    bottom: 4%;
     gap: 6px;
   }
   .fs-fruit {
-    max-height: 18.5%;
+    max-height: 20%;
   }
   .fs-jar-inner,
   .fs-jar-outer {
