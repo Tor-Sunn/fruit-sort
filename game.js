@@ -87,7 +87,136 @@ function isGlassComplete(stack) {
     return stack.every(f => f === stack[0]);
 }
 
-// Sjekk om brettet er løst
+// Difficulty presets + scoring / daily seed helpers
+const DIFFICULTY_PRESETS = {
+    easy:   { glasses: 6,  emptyGlasses: 2, coveredGlasses: 2, scrambleMoves: 60, multiplier: 1.0, fullCoverProb: 0.10 },
+    medium: { glasses: 8,  emptyGlasses: 2, coveredGlasses: 3, scrambleMoves: 90, multiplier: 1.25, fullCoverProb: 0.25 },
+    hard:   { glasses: 10, emptyGlasses: 2, coveredGlasses: 4, scrambleMoves: 140, multiplier: 1.5,  fullCoverProb: 0.35 }
+};
+
+let startTime = null;
+let lastScore = 0;
+let levelSeed = null; // store seed for daily/hashable boards
+
+// Simple seeded RNG (Mulberry32)
+function makeSeededRng(seed) {
+    let t = seed >>> 0;
+    return function() {
+        t += 0x6D2B79F5;
+        let r = Math.imul(t ^ (t >>> 15), 1 | t);
+        r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
+        return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
+// deterministic shuffle using a seeded RNG
+function seededShuffle(array, seed) {
+    const rng = makeSeededRng(seed);
+    for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(rng() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+    }
+    return array;
+}
+
+// generate level by reverse-scrambling from a solved board (guaranteed solvable)
+function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
+    const { glasses: numGlasses, emptyGlasses } = config;
+    const nonEmpty = numGlasses - emptyGlasses;
+    const chosen = shuffle([...FRUIT_POOL]).slice(0, nonEmpty);
+
+    // start solved: each nonEmpty glass full of one fruit
+    const state = chosen.map(f => Array.from({ length: GLASS_CAPACITY }, () => f));
+    for (let i = 0; i < emptyGlasses; i++) state.push([]);
+
+    const total = state.length;
+
+    // deterministic if seed provided
+    const rng = seed == null ? Math.random : makeSeededRng(seed);
+
+    const isValidPour = (from, to, st) => {
+        if (from === to) return false;
+        if (st[from].length === 0) return false;
+        if (st[to].length >= GLASS_CAPACITY) return false;
+        if (st[to].length === 0) return true;
+        return st[to][st[to].length - 1] === st[from][st[from].length - 1];
+    };
+
+    // attempt many random valid moves
+    let attempts = 0;
+    let moves = 0;
+    while (moves < scrambleMoves && attempts < scrambleMoves * 8) {
+        attempts++;
+        const from = Math.floor(rng() * total);
+        const to = Math.floor(rng() * total);
+        if (!isValidPour(from, to, state)) continue;
+
+        // count consecutive same at top
+        const topFruit = state[from][state[from].length - 1];
+        let sameCount = 0;
+        for (let i = state[from].length - 1; i >= 0; i--) {
+            if (state[from][i] === topFruit) sameCount++; else break;
+        }
+        const available = GLASS_CAPACITY - state[to].length;
+        const toMove = Math.min(sameCount, available);
+        const moved = [];
+        for (let i = 0; i < toMove; i++) moved.push(state[from].pop());
+        for (let i = moved.length - 1; i >= 0; i--) state[to].push(moved[i]);
+
+        moves++;
+    }
+
+    // pad to MAX_GLASSES with unused empties
+    while (state.length < MAX_GLASSES) state.push([]);
+
+    return state;
+}
+
+// deterministic daily generator using date seed (YYYY-MM-DD -> int)
+function dateSeedFromDate(d) {
+    const y = d.getUTCFullYear(), m = d.getUTCMonth() + 1, day = d.getUTCDate();
+    // simple combine to a number
+    return ((y * 100 + m) * 100 + day) >>> 0;
+}
+
+function generateDailyLevel(config, date = new Date(), scrambleMoves = 120) {
+    const seed = dateSeedFromDate(date);
+    levelSeed = seed;
+    // use seeded shuffle to pick fruit types and then reverse-scramble deterministically
+    return generateSolvableLevel(config, scrambleMoves, seed);
+}
+
+// compute a simple score: higher for fewer moves and shorter time. Tweak as desired.
+function computeScore(movesCount, elapsedMs, difficultyMultiplier = 1) {
+    const elapsedSec = Math.max(1, Math.round(elapsedMs / 1000));
+    const base = 1000 * difficultyMultiplier;
+    // subtract penalties, ensure non-negative
+    const score = Math.max(0, Math.round(base - movesCount * 12 - elapsedSec * 3));
+    return score;
+}
+
+// stubs for submitting scores — replace endpoints with your eqsy.io API
+async function submitGlobalScore(payload) {
+    // Example payload: { score, moves, timeMs, difficulty, seed }
+    // Replace URL with real endpoint and include auth if required.
+    try {
+        // await fetch("https://api.eqsy.io/fruit-sort/highscore", { method: "POST", body: JSON.stringify(payload) });
+        console.log("submitGlobalScore", payload);
+    } catch (e) {
+        console.warn("submitGlobalScore failed", e);
+    }
+}
+
+async function submitDailyScore(payload) {
+    try {
+        // await fetch("https://api.eqsy.io/fruit-sort/daily", { method: "POST", body: JSON.stringify(payload) });
+        console.log("submitDailyScore", payload);
+    } catch (e) {
+        console.warn("submitDailyScore failed", e);
+    }
+}
+
+// Replace existing checkWin with this: compute score on win and submit
 function checkWin() {
     const usedGlasses = glasses.slice(0, activeLevel.glasses);
 
@@ -96,7 +225,28 @@ function checkWin() {
     );
 
     if (allOk) {
-        statusEl.textContent = "🎉 You solved the board!";
+        const endTime = Date.now();
+        const elapsed = startTime ? (endTime - startTime) : 0;
+
+        // determine difficulty multiplier if available
+        const diffName = activeLevel._presetName || "easy";
+        const diff = DIFFICULTY_PRESETS[diffName] || { multiplier: 1.0 };
+
+        const score = computeScore(moves, elapsed, diff.multiplier);
+        lastScore = score;
+
+        statusEl.textContent = `🎉 You solved the board! Score: ${score}`;
+        // Submit scores (stubs)
+        const payload = {
+            score,
+            moves,
+            timeMs: elapsed,
+            difficulty: diffName,
+            seed: levelSeed || null,
+            date: new Date().toISOString().slice(0,10)
+        };
+        submitGlobalScore(payload);
+        if (levelSeed) submitDailyScore(payload);
     }
 }
 
@@ -265,58 +415,81 @@ function drawBoard() {
 
         glassEl.appendChild(stackEl);
 
-        // Render leaves for the absolute positions that were covered at start and still exist in coveredPositions.
-        const initialPositions = initialCoveredPositions[i] || [];
-        const remainingPositions = coveredPositions[i] || [];
+        // Render covers:
+        // coveredPositions[i] may now be either:
+        //  - { positions: [absIndex, ...] }  (partial leaves)
+        //  - { fullCover: N }                (full overlay, needs N fruit reveals)
+        const cover = coveredPositions[i];
 
-        if (initialPositions.length > 0 && remainingPositions.length > 0 && i < activeLevel.glasses && stack.length > 0) {
-            // iterate over remainingPositions (absolute indices). They should remain fixed relative to the jar bottom.
-            // Sort descending so we append leaves top-to-bottom (not required but stable).
-            remainingPositions.slice().sort((a,b) => b - a).forEach(pos => {
-                // Only render if the position still exists in the current stack (safety check)
-                if (pos < 0 || pos > stack.length - 1) return;
+        // Full cover overlay: render a single overlay that hides the whole glass
+        if (cover && cover.fullCover && cover.fullCover > 0 && i < activeLevel.glasses) {
+            const overlay = document.createElement("div");
+            overlay.className = "fs-full-cover";
+            overlay.setAttribute("aria-hidden", "true");
+            overlay.dataset.glass = String(i);
 
-                const leafWrap = document.createElement("div");
-                leafWrap.className = "fs-leaf-wrap";
-                leafWrap.setAttribute("aria-hidden", "true");
-                leafWrap.dataset.glass = String(i);
-                // dataset.coveredIndex now holds the absolute index-from-bottom (fixed)
-                leafWrap.dataset.coveredIndex = String(pos);
+            // show how many reveals remain (optional)
+            const q = document.createElement("span");
+            q.className = "fs-full-cover-q";
+            q.textContent = "?" + (cover.fullCover > 1 ? ` ${cover.fullCover}` : "");
+            overlay.appendChild(q);
 
-                // initial fallback sizing (will be corrected by positionLeaves)
-                const bottomPct = computeLeafBottomPercent(pos);
-                leafWrap.style.left = "50%";
-                leafWrap.style.transform = "translateX(-50%)";
-                leafWrap.style.bottom = `${bottomPct}%`;
-                // use explicit percent height as fallback; will be replaced with px once measured
-                leafWrap.style.width = `66%`;
-                leafWrap.style.height = `66%`;
+            // append overlay as top element of the stack so it visually covers fruits
+            stackEl.appendChild(overlay);
+        } else {
+            // Partial leaves (backwards compatible): render per-position leaves from cover.positions
+            const initialPositions = initialCoveredPositions[i] || [];
+            const remainingPositions = (cover && Array.isArray(cover.positions)) ? cover.positions : [];
 
-                // leaf image element (fills wrapper)
-                const leafImg = document.createElement("img");
-                leafImg.className = "fs-leaf-img";
-                leafImg.src = "img/leaf.png";
-                leafImg.alt = "leaf";
-                leafImg.draggable = false;
-                // ensure the image fills the wrapper so we don't get tiny intrinsic sizes
-                leafImg.style.width = "100%";
-                leafImg.style.height = "100%";
-                leafImg.style.display = "block";
+            if (initialPositions.length > 0 && remainingPositions.length > 0 && i < activeLevel.glasses && stack.length > 0) {
+                // iterate over remainingPositions (absolute indices). They should remain fixed relative to the jar bottom.
+                // Sort descending so we append leaves top-to-bottom (not required but stable).
+                remainingPositions.slice().sort((a,b) => b - a).forEach(pos => {
+                    // Only render if the position still exists in the current stack (safety check)
+                    if (pos < 0 || pos > stack.length - 1) return;
 
-                // schedule positioning when the leaf image has loaded
-                leafImg.addEventListener('load', schedulePositionLeaves);
-                leafImg.addEventListener('error', schedulePositionLeaves);
+                    const leafWrap = document.createElement("div");
+                    leafWrap.className = "fs-leaf-wrap";
+                    leafWrap.setAttribute("aria-hidden", "true");
+                    leafWrap.dataset.glass = String(i);
+                    // dataset.coveredIndex now holds the absolute index-from-bottom (fixed)
+                    leafWrap.dataset.coveredIndex = String(pos);
 
-                const q = document.createElement("span");
-                q.className = "fs-leaf-q";
-                q.textContent = "?";
+                    // initial fallback sizing (will be corrected by positionLeaves)
+                    const bottomPct = computeLeafBottomPercent(pos);
+                    leafWrap.style.left = "50%";
+                    leafWrap.style.transform = "translateX(-50%)";
+                    leafWrap.style.bottom = `${bottomPct}%`;
+                    // use explicit percent height as fallback; will be replaced with px once measured
+                    leafWrap.style.width = `66%`;
+                    leafWrap.style.height = `66%`;
 
-                leafWrap.appendChild(leafImg);
-                leafWrap.appendChild(q);
+                    // leaf image element (fills wrapper)
+                    const leafImg = document.createElement("img");
+                    leafImg.className = "fs-leaf-img";
+                    leafImg.src = "img/leaf.png";
+                    leafImg.alt = "leaf";
+                    leafImg.draggable = false;
+                    // ensure the image fills the wrapper so we don't get tiny intrinsic sizes
+                    leafImg.style.width = "100%";
+                    leafImg.style.height = "100%";
+                    leafImg.style.display = "block";
 
-                // append to stackEl so leaves follow fruit layout and transforms
-                stackEl.appendChild(leafWrap);
-            });
+                    // schedule positioning when the leaf image has loaded
+                    leafImg.addEventListener('load', schedulePositionLeaves);
+                    leafImg.addEventListener('error', schedulePositionLeaves);
+
+                    const q = document.createElement("span");
+                    q.className = "fs-leaf-q";
+                    q.textContent = "?";
+
+                    leafWrap.appendChild(leafImg);
+                    leafWrap.appendChild(q);
+
+                    // append to stackEl so leaves follow fruit layout and transforms
+                    stackEl.appendChild(leafWrap);
+                });
+            }
         }
 
         boardEl.appendChild(glassEl);
@@ -413,22 +586,31 @@ function handleGlassClick(index) {
     selectedGlassIndex = null;
 
     // Reveal logic for covers on the source jar:
-    // We now track absolute covered positions; when the top of the stack reaches a covered position,
-    // that covered position is revealed (leaf removed). Remove as many covered positions as become visible.
-    if (removedCount > 0 && coveredPositions[from] && coveredPositions[from].length > 0) {
-        // newTop after the move
-        let newTop = glasses[from].length - 1;
+    // coveredPositions[from] may be { positions: [...] } or { fullCover: N }.
+    if (removedCount > 0 && coveredPositions[from]) {
+        const cover = coveredPositions[from];
 
-        const remaining = coveredPositions[from] || [];
+        // Handle fullCover: decrement required reveals by removedCount
+        if (cover.fullCover && cover.fullCover > 0) {
+            cover.fullCover -= removedCount;
+            if (cover.fullCover <= 0) {
+                // fully revealed now
+                delete coveredPositions[from];
+            } else {
+                // keep updated count
+                coveredPositions[from] = cover;
+            }
+        } else if (Array.isArray(cover.positions) && cover.positions.length > 0) {
+            // Partial leaf reveal: only remove covered indices that became visible during this move.
+            let newTop = glasses[from].length - 1;
+            const remaining = cover.positions || [];
+            const updated = remaining.filter(p => !(p >= newTop && p <= previousTop)).sort((a,b) => a - b);
 
-        // Remove only the covered indices that became visible during this move.
-        // Those are indices in the inclusive range [newTop, previousTop].
-        const updated = remaining.filter(p => !(p >= newTop && p <= previousTop)).sort((a,b) => a - b);
-
-        if (updated.length === 0) {
-            delete coveredPositions[from];
-        } else {
-            coveredPositions[from] = updated;
+            if (updated.length === 0) {
+                delete coveredPositions[from];
+            } else {
+                coveredPositions[from] = { positions: updated };
+            }
         }
     }
 
@@ -467,24 +649,38 @@ function startNewGame() {
         if (glasses[i] && glasses[i].length > 0) candidateIndices.push(i);
     }
     shuffle(candidateIndices);
+
     const toCover = Math.min(activeLevel.coveredGlasses || 0, candidateIndices.length);
     for (let k = 0; k < toCover; k++) {
         const idx = candidateIndices[k];
         const stackLen = glasses[idx].length;
         if (stackLen <= 1) continue; // nothing to cover under top
-        // depth = how many fruits below the top are initially covered (1..stackLen-1)
-        const maxDepth = Math.min(stackLen - 1, GLASS_CAPACITY - 1);
-        const depth = randInt(1, maxDepth);
 
-        const topIndex = stackLen - 1;
-        const positions = [];
-        for (let j = 1; j <= depth; j++) {
-            const absIndex = topIndex - j; // absolute index-from-bottom
-            if (absIndex >= 0) positions.push(absIndex);
-        }
-        if (positions.length > 0) {
-            initialCoveredPositions[idx] = positions.slice();
-            coveredPositions[idx] = positions.slice(); // start mutable set as copy
+        // Decide cover type: full cover or partial leaves
+        // Probability example: 30% chance fullCover on medium/higher difficulties.
+        const makeFullCover = Math.random() < 0.3; // tweak per difficulty
+
+        if (makeFullCover) {
+            // require between 1..(stackLen) reveals to remove (tune as needed)
+            const required = randInt(1, Math.max(1, Math.min(stackLen, GLASS_CAPACITY)));
+            coveredPositions[idx] = { fullCover: required };
+            // initialCoveredPositions keep a hint (we can store same shape)
+            initialCoveredPositions[idx] = []; // no per-slot leaves when fully covered
+        } else {
+            // Partial leaves as before: depth = how many fruits below the top are initially covered (1..stackLen-1)
+            const maxDepth = Math.min(stackLen - 1, GLASS_CAPACITY - 1);
+            const depth = randInt(1, maxDepth);
+
+            const topIndex = stackLen - 1;
+            const positions = [];
+            for (let j = 1; j <= depth; j++) {
+                const absIndex = topIndex - j; // absolute index-from-bottom
+                if (absIndex >= 0) positions.push(absIndex);
+            }
+            if (positions.length > 0) {
+                initialCoveredPositions[idx] = positions.slice();
+                coveredPositions[idx] = { positions: positions.slice() }; // store as object for consistency
+            }
         }
     }
 
