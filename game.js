@@ -54,6 +54,20 @@ let coveredMap = {};
 // for glasses that were covered when the board was created.
 let initialCoveredMap = {};
 
+// Throttle scheduling for positionLeaves so we don't run it excessively while images load.
+const schedulePositionLeaves = (() => {
+    let scheduled = false;
+    return () => {
+        if (scheduled) return;
+        scheduled = true;
+        // two rAF passes, then run, and allow rescheduling afterwards
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            positionLeaves();
+            scheduled = false;
+        }));
+    };
+})();
+
 // ---- HJELPERE ----
 
 function shuffle(array) {
@@ -118,7 +132,7 @@ function positionLeaves() {
 
         if (fruitEl && fruitEl.clientHeight > 0) {
             // center over fruit
-            const leftPx = fruitEl.offsetLeft + fruitEl.offsetWidth / 2;    
+            const leftPx = fruitEl.offsetLeft + fruitEl.offsetWidth / 2;
             const topPx = fruitEl.offsetTop + fruitEl.offsetHeight / 2;
             // increase leaf size to better cover fruit
             const LEAF_SCALE = 1.5;    // increased scale
@@ -127,12 +141,15 @@ function positionLeaves() {
             const hSize = Math.round(fruitEl.offsetHeight * LEAF_SCALE);
 
             const extraY = Math.round(fruitEl.offsetHeight * VERTICAL_SHIFT);
+            // ensure leaves use px sizes once we can measure a fruit to avoid tiny intrinsic sizes
             w.style.width = `${wSize}px`;
             w.style.height = `${hSize}px`;
             w.style.left = `${leftPx}px`;
             // move center slightly down so leaf covers lower portion of fruit
             w.style.top = `${topPx + extraY}px`;
             w.style.transform = `translate(-50%, -50%)`;
+            // clear bottom to avoid conflicts with top-based layout
+            w.style.bottom = "";
         } else {
             // fallback percent placement (when measurements not available)
             const bottomPct = computeLeafBottomPercent(coveredIndex);
@@ -141,7 +158,7 @@ function positionLeaves() {
             w.style.left = `50%`;
             w.style.transform = `translateX(-50%)`;
             w.style.bottom = `${lowered}%`;
-            // use explicit percent height to avoid very small leaves from intrinsic img size
+            // use explicit percent width/height as a reasonable fallback
             w.style.width = `66%`;
             w.style.height = `66%`;
             w.style.top = ""; // clear top
@@ -218,6 +235,9 @@ function drawBoard() {
         jarInnerImg.src = "img/jar_inner.png";
         jarInnerImg.alt = "jar inner";
         jarInnerImg.draggable = false;
+        // also schedule leaf positioning when jar inner loads (may affect layout)
+        jarInnerImg.addEventListener('load', schedulePositionLeaves);
+        jarInnerImg.addEventListener('error', schedulePositionLeaves);
         glassEl.appendChild(jarInnerImg);
 
         const stackEl = document.createElement("div");
@@ -232,9 +252,14 @@ function drawBoard() {
             img.className = "fs-fruit";
             img.src = `img/${fruitName}.png`;
             img.alt = fruitName;
+            img.draggable = false;
 
             // Set a CSS variable for optional staggered animation
             img.style.setProperty('--fruit-index', String(stack.length - 1 - s));
+
+            // when the fruit image finishes loading, schedule positioning so leaves get correct sizes
+            img.addEventListener('load', schedulePositionLeaves);
+            img.addEventListener('error', schedulePositionLeaves);
 
             stackEl.appendChild(img);
         }
@@ -266,7 +291,7 @@ function drawBoard() {
                 leafWrap.style.left = "50%";
                 leafWrap.style.transform = "translateX(-50%)";
                 leafWrap.style.bottom = `${bottomPct}%`;
-                // use explicit percent height to avoid very small leaves (don't rely on 'auto')
+                // use explicit percent height as fallback; will be replaced with px once measured
                 leafWrap.style.width = `66%`;
                 leafWrap.style.height = `66%`;
 
@@ -279,6 +304,11 @@ function drawBoard() {
                 // ensure the image fills the wrapper so we don't get tiny intrinsic sizes
                 leafImg.style.width = "100%";
                 leafImg.style.height = "100%";
+                leafImg.style.display = "block";
+
+                // schedule positioning when the leaf image has loaded
+                leafImg.addEventListener('load', schedulePositionLeaves);
+                leafImg.addEventListener('error', schedulePositionLeaves);
 
                 // centered question badge
                 const q = document.createElement("span");
@@ -296,9 +326,9 @@ function drawBoard() {
         boardEl.appendChild(glassEl);
     }
 
-    // position leaves after paint so measurements are valid.
-    // do two rAF passes to ensure images/layouts are stable before measuring
-    requestAnimationFrame(() => requestAnimationFrame(positionLeaves));
+    // schedule a positioning pass once DOM nodes are in place; actual sizing will happen
+    // when images have loaded (via the load handlers above).
+    schedulePositionLeaves();
 }
 
 // ---- INTERAKSJON ----
@@ -405,6 +435,8 @@ function handleGlassClick(index) {
         }
     }
 
+    // After a move, re-render and schedule repositioning. Images are already loaded so sizing
+    // will be done in the scheduled positionLeaves pass.
     drawBoard();
     checkWin();
 }
@@ -418,7 +450,7 @@ boardEl.addEventListener("click", (e) => {
 });
 
 // reposition leaves on resize
-window.addEventListener("resize", () => requestAnimationFrame(positionLeaves));
+window.addEventListener("resize", () => schedulePositionLeaves());
 
 // ---- START / RESET ----
 
