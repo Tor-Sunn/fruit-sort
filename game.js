@@ -113,29 +113,30 @@ function positionLeaves() {
 
         if (fruitEl && fruitEl.clientHeight > 0) {
             // center over fruit
-            const leftPx = fruitEl.offsetLeft + fruitEl.offsetWidth / 2;
+            const leftPx = fruitEl.offsetLeft + fruitEl.offsetWidth / 2;    
             const topPx = fruitEl.offsetTop + fruitEl.offsetHeight / 2;
-            // increase leaf size to better cover fruit (was 1.25)
-            const wSize = Math.round(fruitEl.offsetWidth * 1.40); // <- increased
-            const hSize = Math.round(fruitEl.offsetHeight * 1.40);
+            // increase leaf size to better cover fruit
+            const LEAF_SCALE = 1.5;    // increased scale
+            const VERTICAL_SHIFT = 0.14; // move leaf down by 14% of fruit height
+            const wSize = Math.round(fruitEl.offsetWidth * LEAF_SCALE);
+            const hSize = Math.round(fruitEl.offsetHeight * LEAF_SCALE);
 
-            // lower the leaf a little so it covers the lower half of the fruit more
-            const extraY = Math.round(fruitEl.offsetHeight * 0.10); // 10% of fruit height downward
+            const extraY = Math.round(fruitEl.offsetHeight * VERTICAL_SHIFT);
             w.style.width = `${wSize}px`;
             w.style.height = `${hSize}px`;
             w.style.left = `${leftPx}px`;
-            // move center slightly down
+            // move center slightly down so leaf covers lower portion of fruit
             w.style.top = `${topPx + extraY}px`;
             w.style.transform = `translate(-50%, -50%)`;
         } else {
             // fallback percent placement (when measurements not available)
             const bottomPct = computeLeafBottomPercent(coveredIndex);
             // lower fallback by a couple percent as well
-            const lowered = Math.max(0, bottomPct - 2);
+            const lowered = Math.max(0, bottomPct - 3);
             w.style.left = `50%`;
             w.style.transform = `translateX(-50%)`;
             w.style.bottom = `${lowered}%`;
-            w.style.width = `60%`; // increase fallback width from 54% -> 60%
+            w.style.width = `66%`; // slightly bigger fallback
             w.style.height = `auto`;
             w.style.top = ""; // clear top
         }
@@ -248,6 +249,7 @@ function drawBoard() {
                 leafWrap.className = "fs-leaf-wrap";
                 leafWrap.setAttribute("aria-hidden", "true");
                 leafWrap.dataset.glass = String(i);
+                // store index-from-bottom so positionLeaves can map it
                 leafWrap.dataset.coveredIndex = String(coveredIndex);
 
                 // initial fallback sizing (will be corrected by positionLeaves)
@@ -255,7 +257,7 @@ function drawBoard() {
                 leafWrap.style.left = "50%";
                 leafWrap.style.transform = "translateX(-50%)";
                 leafWrap.style.bottom = `${bottomPct}%`;
-                leafWrap.style.width = `60%`; // increased fallback width
+                leafWrap.style.width = `66%`;
                 leafWrap.style.height = `auto`;
 
                 // leaf image element (fills wrapper)
@@ -281,10 +283,9 @@ function drawBoard() {
         boardEl.appendChild(glassEl);
     }
 
-    // position leaves after paint so measurements are valid
-    requestAnimationFrame(() => {
-        positionLeaves();
-    });
+    // position leaves after paint so measurements are valid.
+    // do two rAF passes to ensure images/layouts are stable before measuring
+    requestAnimationFrame(() => requestAnimationFrame(positionLeaves));
 }
 
 // ---- INTERAKSJON ----
