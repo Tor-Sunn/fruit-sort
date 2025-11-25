@@ -5,9 +5,11 @@ const GLASSES_PER_ROW = 6;
 const GLASS_CAPACITY = 4;
 
 // Standard brett: 6 glass (4 fylt, 2 tomme)
+// coveredGlasses = hvor mange glass som skal få dekning
 const DEFAULT_LEVEL_CONFIG = {
     glasses: 6,
-    emptyGlasses: 2
+    emptyGlasses: 2,
+    coveredGlasses: 2
 };
 
 // Alle fruktfilene du har i /img
@@ -43,6 +45,10 @@ let activeLevel = { ...DEFAULT_LEVEL_CONFIG };
 let selectedGlassIndex = null;
 let moves = 0;
 
+// coveredMap: index -> depth (how many fruits below the top are covered).
+// Example: depth = 2 means the fruits at positions top-1 and top-2 are each covered with a leaf.
+let coveredMap = {};
+
 // ---- HJELPERE ----
 
 function shuffle(array) {
@@ -51,6 +57,10 @@ function shuffle(array) {
         [array[i], array[j]] = [array[j], array[i]];
     }
     return array;
+}
+
+function randInt(min, max) { // inclusive
+    return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
 // Sjekk om et glass er "komplett" (4 like frukter)
@@ -70,6 +80,17 @@ function checkWin() {
     if (allOk) {
         statusEl.textContent = "🎉 You solved the board!";
     }
+}
+
+// Compute bottom percentage for a fruit at indexFromBottom (0 = bottom) so leaf sits exactly over that fruit.
+// Uses same vertical layout as .fs-fruit-stack: bottom: 10% and height: 58%.
+// We spread positions evenly across GLASS_CAPACITY slots.
+function computeLeafBottomPercent(indexFromBottom) {
+    const base = 10; // bottom anchor in CSS
+    const height = 58; // stack height percent in CSS
+    const slots = Math.max(1, GLASS_CAPACITY - 1); // for 4 capacity, distribute across 3 intervals
+    const step = height / slots;
+    return base + indexFromBottom * step;
 }
 
 // ---- GENERER BRETT ----
@@ -146,7 +167,7 @@ function drawBoard() {
         const stackEl = document.createElement("div");
         stackEl.className = "fs-fruit-stack";
 
-        const stack = glasses[i];
+        const stack = glasses[i] || [];
 
         // Render stack so the array end (top) maps to the visual top of the jar.
         for (let s = stack.length - 1; s >= 0; s--) {
@@ -155,10 +176,36 @@ function drawBoard() {
             img.className = "fs-fruit";
             img.src = `img/${fruitName}.png`;
             img.alt = fruitName;
+
+            // Set a CSS variable for optional staggered animation
+            img.style.setProperty('--fruit-index', String(stack.length - 1 - s));
+
             stackEl.appendChild(img);
         }
 
         glassEl.appendChild(stackEl);
+
+        // If this glass index has a cover depth > 0, render one leaf per covered fruit.
+        // Leaves are positioned using bottom percent so they align with the corresponding fruit.
+        const depth = coveredMap[i] || 0;
+        if (depth > 0 && i < activeLevel.glasses && stack.length > 0) {
+            const topIndex = stack.length - 1;
+            // We cover fruits below the top: k = 1..depth -> coveredIndex = topIndex - k
+            for (let k = 1; k <= depth; k++) {
+                const coveredIndex = topIndex - k;
+                if (coveredIndex < 0) break;
+                const indexFromBottom = coveredIndex; // 0 = bottom
+                const leafEl = document.createElement("div");
+                leafEl.className = "fs-leaf";
+                leafEl.setAttribute("aria-hidden", "true");
+                // compute bottom percent
+                const bottomPct = computeLeafBottomPercent(indexFromBottom);
+                leafEl.style.bottom = `${bottomPct}%`;
+                // each leaf sits centered (CSS already uses left:50% and translateX(-50%))
+                glassEl.appendChild(leafEl);
+            }
+        }
+
         boardEl.appendChild(glassEl);
     }
 }
@@ -167,6 +214,8 @@ function drawBoard() {
 
 function handleGlassClick(index) {
     if (index >= activeLevel.glasses) return;
+
+    // Clicking a covered jar no longer reveals it. Gameplay: must remove top fruit(s) by legal moves first.
 
     const stack = glasses[index];
 
@@ -238,10 +287,38 @@ function handleGlassClick(index) {
         toStack.push(movedFruits[i]);
     }
 
+    // Remember how many visible fruits were removed from the 'from' jar
+    const removedCount = toMove;
+
     moves++;
     movesEl.textContent = moves.toString();
     statusEl.textContent = "";
     selectedGlassIndex = null;
+
+    // Reveal logic for covers on the source jar:
+    // - Only triggered when we removed at least one visible fruit from that jar.
+    // - Remove exactly one covered layer (depth -= 1). If after that the newly revealed fruit and the next covered fruit are identical,
+    //   reveal the second as well (depth -= 1 again). Maximum reveal per move is 2.
+    if (removedCount > 0 && coveredMap[from] && coveredMap[from] > 0) {
+        // reveal one covered fruit
+        coveredMap[from] = Math.max(0, coveredMap[from] - 1);
+
+        // if there is still at least one covered fruit after revealing the first,
+        // check exception: if the now-visible fruit and the next covered one are same type, reveal the second as well.
+        const newStack = glasses[from];
+        const newTop = newStack.length - 1;
+        if ((coveredMap[from] > 0) && newTop >= 1) {
+            const visibleFruit = newStack[newTop];
+            const nextCoveredIndex = newTop - 1;
+            if (nextCoveredIndex >= 0 && newStack[nextCoveredIndex] === visibleFruit) {
+                coveredMap[from] = Math.max(0, coveredMap[from] - 1);
+            }
+        }
+
+        if (coveredMap[from] === 0) {
+            delete coveredMap[from];
+        }
+    }
 
     drawBoard();
     checkWin();
@@ -264,6 +341,24 @@ function startNewGame() {
 
     activeLevel = { ...DEFAULT_LEVEL_CONFIG };
     glasses = generateLevel(activeLevel);
+
+    // Choose random non-empty used glasses to cover with leaves (depth = number of covered fruits)
+    coveredMap = {};
+    const candidateIndices = [];
+    for (let i = 0; i < activeLevel.glasses; i++) {
+        if (glasses[i] && glasses[i].length > 0) candidateIndices.push(i);
+    }
+    shuffle(candidateIndices);
+    const toCover = Math.min(activeLevel.coveredGlasses || 0, candidateIndices.length);
+    for (let k = 0; k < toCover; k++) {
+        const idx = candidateIndices[k];
+        const stackLen = glasses[idx].length;
+        if (stackLen <= 1) continue; // nothing to cover under top
+        // depth = how many fruits below the top are initially covered (1..stackLen-1)
+        const maxDepth = Math.min(stackLen - 1, GLASS_CAPACITY - 1);
+        const depth = randInt(1, maxDepth);
+        coveredMap[idx] = depth;
+    }
 
     selectedGlassIndex = null;
     drawBoard();
