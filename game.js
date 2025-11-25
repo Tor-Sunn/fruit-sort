@@ -116,11 +116,14 @@ function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
     }
     const chosen = pool.slice(0, nonEmpty);
 
-    // start solved: each nonEmpty glass full of one fruit
-    const state = chosen.map(f => Array.from({ length: GLASS_CAPACITY }, () => f));
-    for (let i = 0; i < emptyGlasses; i++) state.push([]);
-
-    const total = state.length;
+    // helper that builds the initial solved state
+    const buildSolvedState = () => {
+        const state = chosen.map(f => Array.from({ length: GLASS_CAPACITY }, () => f));
+        for (let i = 0; i < emptyGlasses; i++) state.push([]);
+        // pad to requested number of glasses (numGlasses) - rest of MAX_GLASSES added later
+        while (state.length < numGlasses) state.push([]);
+        return state;
+    };
 
     const isValidPour = (from, to, st) => {
         if (from === to) return false;
@@ -130,59 +133,103 @@ function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
         return st[to][st[to].length - 1] === st[from][st[from].length - 1];
     };
 
-    // attempt many random valid moves with a larger attempt budget
-    let attempts = 0;
-    let moves = 0;
-    const maxAttempts = Math.max(100, scrambleMoves * 12);
+    const performScramble = (state) => {
+        let attempts = 0;
+        let moves = 0;
+        const maxAttempts = Math.max(100, scrambleMoves * 12);
+        const total = state.length;
 
-    while (moves < scrambleMoves && attempts < maxAttempts) {
-        attempts++;
-        const from = Math.floor(rng() * total);
-        const to = Math.floor(rng() * total);
-        if (!isValidPour(from, to, state)) continue;
+        while (moves < scrambleMoves && attempts < maxAttempts) {
+            attempts++;
+            const from = Math.floor(rng() * total);
+            const to = Math.floor(rng() * total);
+            if (!isValidPour(from, to, state)) continue;
 
-        const topFruit = state[from][state[from].length - 1];
-        let sameCount = 0;
-        for (let i = state[from].length - 1; i >= 0; i--) {
-            if (state[from][i] === topFruit) sameCount++; else break;
+            const topFruit = state[from][state[from].length - 1];
+            let sameCount = 0;
+            for (let i = state[from].length - 1; i >= 0; i--) {
+                if (state[from][i] === topFruit) sameCount++; else break;
+            }
+            const available = GLASS_CAPACITY - state[to].length;
+            const toMove = Math.min(sameCount, available);
+            const moved = [];
+            for (let i = 0; i < toMove; i++) moved.push(state[from].pop());
+            for (let i = moved.length - 1; i >= 0; i--) state[to].push(moved[i]);
+
+            moves++;
         }
-        const available = GLASS_CAPACITY - state[to].length;
-        const toMove = Math.min(sameCount, available);
-        const moved = [];
-        for (let i = 0; i < toMove; i++) moved.push(state[from].pop());
-        for (let i = moved.length - 1; i >= 0; i--) state[to].push(moved[i]);
 
-        moves++;
+        // If we barely moved anything, force a few simple pours to break solved state.
+        if (moves < Math.max(1, Math.floor(scrambleMoves / 6))) {
+            let forced = 0;
+            const total = state.length;
+            for (let i = 0; i < total && forced < 6; i++) {
+                for (let j = 0; j < total && forced < 6; j++) {
+                    if (isValidPour(i, j, state)) {
+                        const topFruit = state[i][state[i].length - 1];
+                        let sameCount = 0;
+                        for (let k = state[i].length - 1; k >= 0; k--) {
+                            if (state[i][k] === topFruit) sameCount++; else break;
+                        }
+                        const available = GLASS_CAPACITY - state[j].length;
+                        const toMove = Math.min(1, Math.min(sameCount, available));
+                        if (toMove > 0) {
+                            const moved = [];
+                            for (let m = 0; m < toMove; m++) moved.push(state[i].pop());
+                            for (let m = moved.length - 1; m >= 0; m--) state[j].push(moved[m]);
+                            forced++;
+                        }
+                    }
+                }
+            }
+        }
+
+        return state;
+    };
+
+    // retry scramble attempts if result is still "solved"
+    const maxRetries = 6;
+    let finalState = null;
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+        const state = buildSolvedState();
+        performScramble(state);
+
+        // check if unsolved
+        const used = state.slice(0, numGlasses);
+        const allOk = used.every(stack => stack.length === 0 || isGlassComplete(stack));
+        if (!allOk) {
+            finalState = state;
+            break;
+        }
+
+        // if seed provided, advance RNG deterministically for next attempt
+        if (seed != null) {
+            // consume a few random values to vary next attempt deterministically
+            for (let k = 0; k < (attempt + 1) * 7; k++) rng();
+        }
     }
 
-    // If we barely moved anything, force a few simple pours to break solved state.
-    if (moves < Math.max(1, Math.floor(scrambleMoves / 6))) {
-        let forced = 0;
-        for (let i = 0; i < total && forced < 6; i++) {
-            for (let j = 0; j < total && forced < 6; j++) {
-                if (isValidPour(i, j, state)) {
-                    const topFruit = state[i][state[i].length - 1];
-                    let sameCount = 0;
-                    for (let k = state[i].length - 1; k >= 0; k--) {
-                        if (state[i][k] === topFruit) sameCount++; else break;
-                    }
-                    const available = GLASS_CAPACITY - state[j].length;
-                    const toMove = Math.min(1, Math.min(sameCount, available));
-                    if (toMove > 0) {
-                        const moved = [];
-                        for (let m = 0; m < toMove; m++) moved.push(state[i].pop());
-                        for (let m = moved.length - 1; m >= 0; m--) state[j].push(moved[m]);
-                        forced++;
-                    }
+    // fallback: if still null, build one last time and force a small swap so it's not solved
+    if (!finalState) {
+        finalState = buildSolvedState();
+        // force move: find first valid pour and do one unit
+        const total = finalState.length;
+        outer:
+        for (let i = 0; i < total; i++) {
+            for (let j = 0; j < total; j++) {
+                if (isValidPour(i, j, finalState)) {
+                    const f = finalState[i].pop();
+                    finalState[j].push(f);
+                    break outer;
                 }
             }
         }
     }
 
     // pad to MAX_GLASSES with unused empties
-    while (state.length < MAX_GLASSES) state.push([]);
+    while (finalState.length < MAX_GLASSES) finalState.push([]);
 
-    return state;
+    return finalState;
 }
 
 // deterministic daily generator using date seed (YYYY-MM-DD -> int)
@@ -639,6 +686,12 @@ function checkWin() {
         const diff = DIFFICULTY_PRESETS[diffName] || { multiplier: 1.0 };
         const score = computeScore(moves, elapsed, diff.multiplier);
         lastScore = score;
+
+        // Clear any remaining covers so the final board doesn't show stray question-marks.
+        // This fixes the case where jars become "complete" by receiving pours but previously had covers.
+        coveredPositions = {};
+        initialCoveredPositions = {};
+        drawBoard();
 
         statusEl.textContent = `🎉 You solved the board! Score: ${score}`;
 
