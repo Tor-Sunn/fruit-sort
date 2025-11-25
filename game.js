@@ -198,17 +198,29 @@ function handleGlassClick(index) {
   const fromStack = glasses[from];
   const toStack = glasses[to];
 
+  // Guard: if source empty (shouldn't happen) cancel
   if (fromStack.length === 0) {
     selectedGlassIndex = null;
     drawBoard();
     return;
   }
 
-  const fruitToMove = fromStack[fromStack.length - 1];
+  // Determine the fruit type on top of the source
+  const topFruit = fromStack[fromStack.length - 1];
+
+  // Count how many consecutive top items of the same type exist in the source
+  let sameCount = 0;
+  for (let i = fromStack.length - 1; i >= 0; i--) {
+    if (fromStack[i] === topFruit) sameCount++;
+    else break;
+  }
+
+  // Available space in target
+  const available = GLASS_CAPACITY - toStack.length;
 
   // Regler:
   // - Målglass kan ikke være fullt
-  if (toStack.length >= GLASS_CAPACITY) {
+  if (available <= 0) {
     statusEl.textContent = "That glass is full.";
     selectedGlassIndex = null;
     drawBoard();
@@ -216,16 +228,25 @@ function handleGlassClick(index) {
   }
 
   // - Målglass må være tomt eller samme frukt på toppen
-  if (toStack.length > 0 && toStack[toStack.length - 1] !== fruitToMove) {
+  if (toStack.length > 0 && toStack[toStack.length - 1] !== topFruit) {
     statusEl.textContent = "You can only pour onto the same fruit or an empty glass.";
     selectedGlassIndex = null;
     drawBoard();
     return;
   }
 
-  // Gyldig flytt
-  fromStack.pop();
-  toStack.push(fruitToMove);
+  // Move as many of the top identical fruits as will fit (min(sameCount, available))
+  const toMove = Math.min(sameCount, available);
+
+  // Pop from source and push to target, preserving order
+  const movedFruits = [];
+  for (let i = 0; i < toMove; i++) {
+    movedFruits.push(fromStack.pop());
+  }
+  // Push them in the same order they had (bottom -> top among the moved group)
+  for (let i = movedFruits.length - 1; i >= 0; i--) {
+    toStack.push(movedFruits[i]);
+  }
 
   moves++;
   movesEl.textContent = moves.toString();
