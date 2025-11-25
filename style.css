@@ -68,8 +68,8 @@ body {
 .fs-glass {
   position: relative;
   width: 100%;
-  /* increased jar width so jars are clearly larger */
-  max-width: 180px;
+  /* Increased jar width (much larger) */
+  max-width: 260px;
   aspect-ratio: 3 / 5;
   margin-inline: auto;
   display: flex;
@@ -100,7 +100,7 @@ body {
   inset: 0;
   background-image: url("img/jar_inner.png");
   /* scale inner jar to match larger element */
-  background-size: 90% auto;
+  background-size: 98% auto;
   background-repeat: no-repeat;
   background-position: center bottom;
   pointer-events: none;
@@ -113,7 +113,7 @@ body {
   inset: 0;
   background-image: url("img/jar_outer.svg");
   /* align outer overlay with inner */
-  background-size: 90% auto;
+  background-size: 98% auto;
   background-repeat: no-repeat;
   background-position: center bottom;
   pointer-events: none;
@@ -126,24 +126,24 @@ body {
 .fs-fruit-stack {
   position: relative;
   z-index: 1;
-  /* slightly wider stack so fruit is larger inside jar */
-  width: 64%;
-  /* height tuned to fit 4 large fruits comfortably */
-  height: 78%;
+  /* Make fruit stack narrower so fruit appears smaller relative to the jar */
+  width: 44%;
+  /* height tuned to fit 4 fruits */
+  height: 76%;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
   align-items: center;
-  /* small positive gap provides natural separation between fruits */
-  gap: 8px;
-  /* pull stack a bit into the jar so top item can sit above rim visually */
+  /* modest gap for natural spacing */
+  gap: 6px;
+  /* pull stack into jar so top item can sit above rim if needed */
   margin-bottom: 6%;
 }
 
 .fs-fruit {
   display: block;
-  /* larger fruit size to match your screenshot */
-  max-width: 95%;
+  /* fruit fills the stack area — stack is intentionally narrower to make fruit smaller */
+  max-width: 100%;
   height: auto;
   pointer-events: none;
   object-fit: contain;
@@ -153,17 +153,17 @@ body {
 
 @media (max-width: 1000px) {
   .fs-glass {
-    max-width: 150px;
+    max-width: 220px;
   }
   .fs-fruit-stack {
-    width: 62%;
+    width: 46%;
     height: 74%;
     margin-bottom: 7%;
-    gap: 7px;
+    gap: 6px;
   }
   .fs-jar-inner,
   .fs-jar-outer {
-    background-size: 88% auto;
+    background-size: 96% auto;
   }
 }
 
@@ -172,17 +172,17 @@ body {
     grid-template-columns: repeat(3, 1fr);
   }
   .fs-glass {
-    max-width: 120px;
+    max-width: 160px;
   }
   .fs-fruit-stack {
-    width: 66%;
+    width: 52%;
     height: 70%;
     margin-bottom: 9%;
-    gap: 6px;
+    gap: 5px;
   }
   .fs-jar-inner,
   .fs-jar-outer {
-    background-size: 86% auto;
+    background-size: 94% auto;
   }
 }
 
