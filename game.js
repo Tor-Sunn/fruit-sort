@@ -96,140 +96,164 @@ function makeSeededRng(seed) {
     };
 }
 
-// generate level by reverse-scrambling from a solved board (guaranteed solvable)
+// generate level by random distribution + solver (guaranteed solvable)
 function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
     const { glasses: numGlasses, emptyGlasses } = config;
     const nonEmpty = numGlasses - emptyGlasses;
 
-    // choose fruit types deterministically when seed is provided
-    const pool = [...FRUIT_POOL];
-
-    // deterministic shuffle using seeded RNG when seed provided
+    // deterministic RNG when seed provided
     const rng = seed == null ? Math.random : makeSeededRng(seed);
-    if (seed != null) {
-        for (let i = pool.length - 1; i > 0; i--) {
+
+    // helper shuffle using supplied rng
+    const shuffleWithRng = (arr) => {
+        for (let i = arr.length - 1; i > 0; i--) {
             const j = Math.floor(rng() * (i + 1));
-            [pool[i], pool[j]] = [pool[j], pool[i]];
+            [arr[i], arr[j]] = [arr[j], arr[i]];
         }
-    } else {
-        shuffle(pool);
-    }
-    const chosen = pool.slice(0, nonEmpty);
-
-    // helper that builds the initial solved state
-    const buildSolvedState = () => {
-        const state = chosen.map(f => Array.from({ length: GLASS_CAPACITY }, () => f));
-        for (let i = 0; i < emptyGlasses; i++) state.push([]);
-        // pad to requested number of glasses (numGlasses)
-        while (state.length < numGlasses) state.push([]);
-        return state;
+        return arr;
     };
 
-    const isValidPour = (from, to, st) => {
-        if (from === to) return false;
-        if (st[from].length === 0) return false;
-        if (st[to].length >= GLASS_CAPACITY) return false;
-        if (st[to].length === 0) return true;
-        return st[to][st[to].length - 1] === st[from][st[from].length - 1];
+    const isSolved = (state) => {
+        const used = state.slice(0, numGlasses);
+        return used.every(stack => stack.length === 0 || (stack.length === GLASS_CAPACITY && stack.every(f => f === stack[0])));
     };
 
-    const performScramble = (state) => {
-        let attempts = 0;
-        let moves = 0;
-        const maxAttempts = Math.max(200, scrambleMoves * 18);
-        const total = state.length;
+    const serialize = (state) => state.slice(0, numGlasses).map(s => s.join(',')).join('|');
 
-        while (moves < scrambleMoves && attempts < maxAttempts) {
-            attempts++;
-            const from = Math.floor(rng() * total);
-            const to = Math.floor(rng() * total);
-            if (!isValidPour(from, to, state)) continue;
+    const cloneState = (s) => s.map(arr => arr.slice());
 
-            const topFruit = state[from][state[from].length - 1];
-            let sameCount = 0;
-            for (let i = state[from].length - 1; i >= 0; i--) {
-                if (state[from][i] === topFruit) sameCount++; else break;
-            }
-            const available = GLASS_CAPACITY - state[to].length;
-            const toMove = Math.min(sameCount, available);
-            const moved = [];
-            for (let i = 0; i < toMove; i++) moved.push(state[from].pop());
-            for (let i = moved.length - 1; i >= 0; i--) state[to].push(moved[i]);
-
-            moves++;
+    const getTopSameCount = (stack) => {
+        if (stack.length === 0) return 0;
+        const top = stack[stack.length - 1];
+        let c = 0;
+        for (let i = stack.length - 1; i >= 0; i--) {
+            if (stack[i] === top) c++; else break;
         }
+        return c;
+    };
 
-        // If we barely moved anything, force a few simple pours to break solved state.
-        if (moves < Math.max(1, Math.floor(scrambleMoves / 4))) {
-            let forced = 0;
-            const total = state.length;
-            for (let i = 0; i < total && forced < 10; i++) {
-                for (let j = 0; j < total && forced < 10; j++) {
-                    if (isValidPour(i, j, state)) {
-                        const topFruit = state[i][state[i].length - 1];
-                        let sameCount = 0;
-                        for (let k = state[i].length - 1; k >= 0; k--) {
-                            if (state[i][k] === topFruit) sameCount++; else break;
-                        }
-                        const available = GLASS_CAPACITY - state[j].length;
-                        const toMove = Math.min(1, Math.min(sameCount, available));
-                        if (toMove > 0) {
-                            const moved = [];
-                            for (let m = 0; m < toMove; m++) moved.push(state[i].pop());
-                            for (let m = moved.length - 1; m >= 0; m--) state[j].push(moved[m]);
-                            forced++;
-                        }
+    const getValidMoves = (st) => {
+        const moves = [];
+        const total = st.length;
+        for (let from = 0; from < total; from++) {
+            if (st[from].length === 0) continue;
+            const sameCount = getTopSameCount(st[from]);
+            for (let to = 0; to < total; to++) {
+                if (from === to) continue;
+                if (st[to].length >= GLASS_CAPACITY) continue;
+                // forward rule: can pour onto empty or same-top fruit
+                if (st[to].length === 0 || st[to][st[to].length - 1] === st[from][st[from].length - 1]) {
+                    const available = GLASS_CAPACITY - st[to].length;
+                    const maxMove = Math.min(sameCount, available);
+                    // allow moves of 1..maxMove (solver needs to explore)
+                    for (let cnt = 1; cnt <= maxMove; cnt++) {
+                        moves.push({ from, to, cnt });
                     }
                 }
             }
         }
-
-        return state;
+        return moves;
     };
 
-    // If scramble produces a board with too few unsolved jars, retry a few times.
-    const maxRetries = 10;
-    const minNotSolved = Math.max(2, Math.ceil(nonEmpty / 3)); // require at least this many jars not solved
-    let finalState = null;
+    const applyMove = (st, mv) => {
+        const ns = cloneState(st);
+        const moved = [];
+        for (let i = 0; i < mv.cnt; i++) moved.push(ns[mv.from].pop());
+        for (let i = moved.length - 1; i >= 0; i--) ns[mv.to].push(moved[i]);
+        return ns;
+    };
 
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-        const state = buildSolvedState();
-        performScramble(state);
+    // lightweight BFS solver to check solvability
+    const isSolvable = (start) => {
+        if (isSolved(start)) return true;
+        const seen = new Set();
+        const q = [];
+        const key0 = serialize(start);
+        seen.add(key0);
+        q.push(start);
+        const maxSteps = 50000; // cap to avoid pathological runs
+        let steps = 0;
 
-        const used = state.slice(0, numGlasses);
-        const notSolvedCount = used.filter(stack => !(stack.length === 0 || isGlassComplete(stack))).length;
-
-        if (notSolvedCount >= minNotSolved) {
-            finalState = state;
-            break;
-        }
-
-        // advance deterministic RNG between attempts so seeded results vary predictably
-        if (seed != null) {
-            for (let k = 0; k < (attempt + 1) * 11; k++) rng();
-        }
-    }
-
-    // fallback: if still null, build one last time and force a small swap so it's not solved
-    if (!finalState) {
-        finalState = buildSolvedState();
-        const total = finalState.length;
-        outer:
-        for (let i = 0; i < total; i++) {
-            for (let j = 0; j < total; j++) {
-                if (isValidPour(i, j, finalState)) {
-                    const f = finalState[i].pop();
-                    finalState[j].push(f);
-                    break outer;
+        while (q.length > 0) {
+            if (++steps > maxSteps) return false;
+            const cur = q.shift();
+            if (isSolved(cur)) return true;
+            const moves = getValidMoves(cur);
+            for (const mv of moves) {
+                const nxt = applyMove(cur, mv);
+                const k = serialize(nxt);
+                if (!seen.has(k)) {
+                    seen.add(k);
+                    q.push(nxt);
                 }
             }
         }
+        return false;
+    };
+
+    // build pool of fruits: each chosen fruit appears GLASS_CAPACITY times
+    const poolBase = [...FRUIT_POOL];
+    // choose first nonEmpty fruit types (randomized)
+    const poolSelector = shuffleWithRng(poolBase).slice(0, nonEmpty);
+
+    const buildRandomState = () => {
+        // create flat list of fruits (each type repeated capacity)
+        const flat = [];
+        for (let i = 0; i < poolSelector.length; i++) {
+            for (let k = 0; k < GLASS_CAPACITY; k++) flat.push(poolSelector[i]);
+        }
+        shuffleWithRng(flat);
+
+        // distribute fruits across numGlasses in round-robin-ish way to avoid trivial full jars
+        const state = Array.from({ length: numGlasses }, () => []);
+        // fill one fruit at a time into a random glass with capacity
+        const glassOrder = shuffleWithRng([...Array(numGlasses).keys()]);
+        let idx = 0;
+        while (flat.length > 0) {
+            const g = glassOrder[idx % glassOrder.length];
+            if (state[g].length < GLASS_CAPACITY) {
+                state[g].push(flat.pop());
+            }
+            idx++;
+        }
+        // ensure order: bottom->top (we pushed in arbitrary order, that's fine)
+        return state;
+    };
+
+    // attempt generation until we get a solvable, non-trivial board
+    const maxAttempts = 80;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        const candidate = buildRandomState();
+        // pad to MAX_GLASSES
+        while (candidate.length < MAX_GLASSES) candidate.push([]);
+        // require not already solved and solvable
+        const used = candidate.slice(0, numGlasses);
+        const alreadySolved = used.every(stack => stack.length === 0 || (stack.length === GLASS_CAPACITY && stack.every(f => f === stack[0])));
+        if (alreadySolved) continue;
+        if (isSolvable(candidate)) return candidate;
+        // if seed deterministic, advance rng a bit between attempts
+        if (seed != null) {
+            for (let k = 0; k < (attempt + 1) * 3; k++) rng();
+        }
     }
 
-    // pad to MAX_GLASSES with unused empties
-    while (finalState.length < MAX_GLASSES) finalState.push([]);
-
-    return finalState;
+    // fallback: deterministic small-scramble of solved layout (guarantee not solved)
+    const fallback = poolSelector.map(f => Array.from({ length: GLASS_CAPACITY }, () => f));
+    for (let i = 0; i < emptyGlasses; i++) fallback.push([]);
+    // do a single forced swap to make it unsolved
+    outer:
+    for (let i = 0; i < fallback.length; i++) {
+        for (let j = 0; j < fallback.length; j++) {
+            if (i === j) continue;
+            if (fallback[i].length > 0 && fallback[j].length < GLASS_CAPACITY) {
+                const v = fallback[i].pop();
+                fallback[j].push(v);
+                break outer;
+            }
+        }
+    }
+    while (fallback.length < MAX_GLASSES) fallback.push([]);
+    return fallback;
 }
 
 // deterministic daily generator using date seed (YYYY-MM-DD -> int)
