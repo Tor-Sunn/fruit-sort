@@ -100,16 +100,27 @@ function makeSeededRng(seed) {
 function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
     const { glasses: numGlasses, emptyGlasses } = config;
     const nonEmpty = numGlasses - emptyGlasses;
-    const chosen = shuffle([...FRUIT_POOL]).slice(0, nonEmpty);
+
+    // choose fruit types deterministically when seed is provided
+    const pool = [...FRUIT_POOL];
+
+    // deterministic shuffle using seeded RNG when seed provided
+    const rng = seed == null ? Math.random : makeSeededRng(seed);
+    if (seed != null) {
+        for (let i = pool.length - 1; i > 0; i--) {
+            const j = Math.floor(rng() * (i + 1));
+            [pool[i], pool[j]] = [pool[j], pool[i]];
+        }
+    } else {
+        shuffle(pool);
+    }
+    const chosen = pool.slice(0, nonEmpty);
 
     // start solved: each nonEmpty glass full of one fruit
     const state = chosen.map(f => Array.from({ length: GLASS_CAPACITY }, () => f));
     for (let i = 0; i < emptyGlasses; i++) state.push([]);
 
     const total = state.length;
-
-    // deterministic if seed provided
-    const rng = seed == null ? Math.random : makeSeededRng(seed);
 
     const isValidPour = (from, to, st) => {
         if (from === to) return false;
@@ -119,16 +130,17 @@ function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
         return st[to][st[to].length - 1] === st[from][st[from].length - 1];
     };
 
-    // attempt many random valid moves
+    // attempt many random valid moves with a larger attempt budget
     let attempts = 0;
     let moves = 0;
-    while (moves < scrambleMoves && attempts < scrambleMoves * 8) {
+    const maxAttempts = Math.max(100, scrambleMoves * 12);
+
+    while (moves < scrambleMoves && attempts < maxAttempts) {
         attempts++;
         const from = Math.floor(rng() * total);
         const to = Math.floor(rng() * total);
         if (!isValidPour(from, to, state)) continue;
 
-        // count consecutive same at top
         const topFruit = state[from][state[from].length - 1];
         let sameCount = 0;
         for (let i = state[from].length - 1; i >= 0; i--) {
@@ -141,6 +153,30 @@ function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
         for (let i = moved.length - 1; i >= 0; i--) state[to].push(moved[i]);
 
         moves++;
+    }
+
+    // If we barely moved anything, force a few simple pours to break solved state.
+    if (moves < Math.max(1, Math.floor(scrambleMoves / 6))) {
+        let forced = 0;
+        for (let i = 0; i < total && forced < 6; i++) {
+            for (let j = 0; j < total && forced < 6; j++) {
+                if (isValidPour(i, j, state)) {
+                    const topFruit = state[i][state[i].length - 1];
+                    let sameCount = 0;
+                    for (let k = state[i].length - 1; k >= 0; k--) {
+                        if (state[i][k] === topFruit) sameCount++; else break;
+                    }
+                    const available = GLASS_CAPACITY - state[j].length;
+                    const toMove = Math.min(1, Math.min(sameCount, available));
+                    if (toMove > 0) {
+                        const moved = [];
+                        for (let m = 0; m < toMove; m++) moved.push(state[i].pop());
+                        for (let m = moved.length - 1; m >= 0; m--) state[j].push(moved[m]);
+                        forced++;
+                    }
+                }
+            }
+        }
     }
 
     // pad to MAX_GLASSES with unused empties
@@ -214,10 +250,13 @@ function positionLeaves() {
         const stack = glasses[glassIndex] || [];
         // Map coveredIndex (0=bottom) to DOM index: DOM[0]=top ... DOM[n-1]=bottom
         const domIndex = (stack.length - 1) - coveredIndex;
-        const fruitEl = fruitImgs[domIndex];
+        // prefer exact fruitEl; if missing, fall back to bottom fruit, then top fruit, then null
+        let fruitEl = null;
+        if (domIndex >= 0 && domIndex < fruitImgs.length) fruitEl = fruitImgs[domIndex];
+        else if (fruitImgs.length > 0) fruitEl = fruitImgs[fruitImgs.length - 1]; // bottom fruit
 
+        // position using measured fruit if possible
         if (fruitEl && fruitEl.clientHeight > 0) {
-            // center over fruit
             const leftPx = fruitEl.offsetLeft + fruitEl.offsetWidth / 2;
             const topPx = fruitEl.offsetTop + fruitEl.offsetHeight / 2;
             const LEAF_SCALE = 1.5;
@@ -233,7 +272,10 @@ function positionLeaves() {
             w.style.transform = `translate(-50%, -50%)`;
             w.style.bottom = "";
         } else {
+            // fallback percent placement (when measurements not available)
+            // compute percent relative to stack layout
             const bottomPct = computeLeafBottomPercent(coveredIndex);
+            // keep leaf slightly lower for better coverage
             const lowered = Math.max(0, bottomPct - 3);
             w.style.left = `50%`;
             w.style.transform = `translateX(-50%)`;
@@ -377,7 +419,7 @@ const schedulePositionLeaves = (() => {
 
 // ---- INTERACTION ----
 
-function handleGlassClick(index) {
+function handleGlassClick(index = 0) {
     if (index >= activeLevel.glasses) return;
 
     const stack = glasses[index];
@@ -559,7 +601,8 @@ function startNewGame(options = {}) {
             const topIndex = stackLen - 1;
             const positions = [];
             for (let j = 1; j <= depth; j++) {
-                const absIndex = topIndex - j;
+                const absIndex = topIndex - j; // absolute index-from-bottom
+                // allow covering the bottom slot (absIndex >= 0)
                 if (absIndex >= 0) positions.push(absIndex);
             }
             if (positions.length > 0) {
