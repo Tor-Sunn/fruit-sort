@@ -433,6 +433,189 @@ const schedulePositionLeaves = (() => {
     };
 })();
 
+// --- Replace/insert: group-pour scramble + small BFS solver ---
+
+// Returns a canonical string for a state (used by solver)
+function canonicalStateKey(state, usedCount) {
+    // only consider first usedCount glasses (usually activeLevel.glasses) when canonicalizing
+    return state.slice(0, usedCount).map(stack => stack.join(',')).join('|');
+}
+
+// Get all legal pour moves (from -> to) for current rules (groups)
+function getLegalPours(state) {
+    const total = state.length;
+    const pours = [];
+    for (let from = 0; from < total; from++) {
+        const fstack = state[from];
+        if (!fstack || fstack.length === 0) continue;
+        const topFruit = fstack[fstack.length - 1];
+
+        // count top-run length in 'from'
+        let run = 0;
+        for (let i = fstack.length - 1; i >= 0 && fstack[i] === topFruit; i--) run++;
+
+        for (let to = 0; to < total; to++) {
+            if (to === from) continue;
+            const tstack = state[to];
+            if (!tstack) continue;
+            const available = GLASS_CAPACITY - tstack.length;
+            if (available <= 0) continue;
+            if (tstack.length === 0 || tstack[tstack.length - 1] === topFruit) {
+                const canMove = Math.min(run, available);
+                if (canMove > 0) pours.push({ from, to, count: canMove });
+            }
+        }
+    }
+    return pours;
+}
+
+// Apply a pour move (mutates a copy and returns it)
+function applyPourCopy(state, move) {
+    const copy = state.map(s => s.slice());
+    for (let i = 0; i < move.count; i++) {
+        copy[move.to].push(copy[move.from].pop());
+    }
+    return copy;
+}
+
+// Lightweight BFS solver returning minimal moves to solved up to maxDepth (Infinity if not found)
+function findMinSolutionMoves(startState, usedCount, maxDepth = 18) {
+    const startKey = canonicalStateKey(startState, usedCount);
+    const queue = [{ state: startState.map(s => s.slice()), key: startKey, depth: 0 }];
+    const seen = new Map();
+    seen.set(startKey, 0);
+
+    const isSolved = (st) => {
+        for (let i = 0; i < usedCount; i++) {
+            const stack = st[i];
+            if (stack.length === 0) continue;
+            if (stack.length !== GLASS_CAPACITY) return false;
+            for (let j = 1; j < stack.length; j++) {
+                if (stack[j] !== stack[0]) return false;
+            }
+        }
+        return true;
+    };
+
+    if (isSolved(startState)) return 0;
+
+    while (queue.length) {
+        const node = queue.shift();
+        if (node.depth >= maxDepth) continue;
+
+        const pours = getLegalPours(node.state);
+        for (const mv of pours) {
+            const next = applyPourCopy(node.state, mv);
+            const key = canonicalStateKey(next, usedCount);
+            if (seen.has(key) && seen.get(key) <= node.depth + 1) continue;
+            if (isSolved(next)) return node.depth + 1;
+            seen.set(key, node.depth + 1);
+            queue.push({ state: next, key, depth: node.depth + 1 });
+        }
+    }
+    return Infinity;
+}
+
+// Scramble using group-pours, avoid immediate reversal, and attempt to produce a board with reasonable minimal solution length
+function performScrambleOnce(state, movesTarget, usedCount, rng, maxAttempts = 2000) {
+    const total = state.length;
+    let attempts = 0;
+    let moves = 0;
+    let lastMove = null; // {from,to}
+
+    while (moves < movesTarget && attempts < maxAttempts) {
+        attempts++;
+        const pours = getLegalPours(state);
+
+        if (pours.length === 0) break;
+
+        // Filter out immediate reversals
+        const candidates = pours.filter(p => !(lastMove && p.from === lastMove.to && p.to === lastMove.from));
+        const pool = candidates.length ? candidates : pours;
+
+        // pick random pour from pool using rng
+        const mv = pool[Math.floor(rng() * pool.length)];
+
+        // perform the pour (group count already correct)
+        for (let k = 0; k < mv.count; k++) state[mv.to].push(state[mv.from].pop());
+
+        lastMove = { from: mv.from, to: mv.to };
+        moves++;
+    }
+
+    return state;
+}
+
+// Update generateSolvableLevel loop to call the new scramble and validate via solver.
+// Replace the inner loop part where we created 'state' and did performScrambleOnce and finalState detection
+function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
+    const { glasses: numGlasses, emptyGlasses } = config;
+    const nonEmpty = numGlasses - emptyGlasses;
+
+    // seeded RNG if seed provided
+    const rng = seed == null ? Math.random : makeSeededRng(seed);
+
+    const shuffleWithRng = (arr) => {
+        for (let i = arr.length - 1; i > 0; i--) {
+            const j = Math.floor(rng() * (i + 1));
+            [arr[i], arr[j]] = [arr[j], arr[i]];
+        }
+        return arr;
+    };
+
+    const buildSolvedState = () => {
+        const pool = shuffleWithRng([...FRUIT_POOL]).slice(0, nonEmpty);
+        const state = pool.map(f => Array.from({ length: GLASS_CAPACITY }, () => f));
+        for (let i = 0; i < emptyGlasses; i++) state.push([]);
+        // pad to requested number of glasses (numGlasses)
+        while (state.length < numGlasses) state.push([]);
+        return state;
+    };
+
+    const maxRetries = 8;
+    let finalState = null;
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+        const state = buildSolvedState();
+        // perform extra moves when numGlasses small to ensure mixing
+        const movesTarget = Math.max(scrambleMoves, Math.floor(scrambleMoves * (1 + attempt * 0.25)));
+
+        performScrambleOnce(state, movesTarget, nonEmpty, rng);
+
+        // pad to MAX_GLASSES
+        while (state.length < MAX_GLASSES) state.push([]);
+
+        // validate scrambles by ensuring they can be solved in a reasonable number of moves
+        // allow some slack on first few attempts, then tighten on later attempts
+        const slack = Math.max(0, Math.min(3, Math.floor(attempt / 2)));
+        const minSolve = findMinSolutionMoves(state, numGlasses, 18 - slack);
+        if (minSolve >= 18) continue; // too easy, retry
+
+        finalState = state;
+        break;
+    }
+
+    // fallback: force a single swap to guarantee unsolved
+    if (!finalState) {
+        const fb = buildSolvedState();
+        const total = fb.length;
+        outer:
+        for (let i = 0; i < total; i++) {
+            for (let j = 0; j < total; j++) {
+                if (i === j) continue;
+                if (fb[i].length > 0 && fb[j].length < GLASS_CAPACITY) {
+                    fb[j].push(fb[i].pop());
+                    break outer;
+                }
+            }
+        }
+        while (fb.length < MAX_GLASSES) fb.push([]);
+        finalState = fb;
+    }
+
+    return finalState;
+}
+
 // ---- INTERACTION ----
 
 function handleGlassClick(index = 0) {
