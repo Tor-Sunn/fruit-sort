@@ -280,4 +280,33 @@ body {
     .fs-fruit {
         max-height: 31%;
     }
+    .fs-diff-buttons {
+        display: flex;
+        gap: 8px;
+        margin-left: 20px;
+    }
+
+    .fs-diff-btn {
+        padding: 6px 14px;
+        border-radius: 6px;
+        background: #1e293b;
+        border: 1px solid #334155;
+        color: #e2e8f0;
+        font-size: 0.85rem;
+        cursor: pointer;
+        transition: background 0.15s, border-color 0.15s;
+    }
+
+        .fs-diff-btn:hover {
+            background: #334155;
+            border-color: #475569;
+        }
+
+    .fs-diff-active {
+        background: #0ea5e9;
+        border-color: #0284c7;
+        color: #0f172a;
+        font-weight: 600;
+    }
+
 }

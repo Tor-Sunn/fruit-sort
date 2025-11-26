@@ -42,9 +42,13 @@ const movesEl = document.getElementById("fs-moves");
 const statusEl = document.getElementById("fs-status");
 const resetBtn = document.getElementById("fs-reset");
 const difficultySelect = document.getElementById("fs-difficulty");
-const fastHardCheckbox = document.getElementById("fs-fast-hard"); // brukes ikke i logikk, men kan styre UI
+const fastHardCheckbox = document.getElementById("fs-fast-hard"); // brukes ikke i logikk nå, men kan brukes i UI
 
 // ---- STATE ----
+
+// Generator-modus styrer hvor hardt vi scrambler fra en løst tilstand.
+// Verdier: "casual" | "challenging" | "brutal" | "insane"
+let generatorDifficulty = "brutal";
 
 let glasses = [];          // Array av MAX_GLASSES glass, hvert glass = array med frukt (bunn -> topp)
 let activeLevel = { ...DEFAULT_LEVEL_CONFIG };
@@ -114,6 +118,26 @@ const DIFFICULTY_PRESETS = {
     easy: { glasses: 6, emptyGlasses: 2, coveredGlasses: 1, scrambleMoves: 70, multiplier: 1.0, fullCoverProb: 0.10 },
     medium: { glasses: 8, emptyGlasses: 1, coveredGlasses: 2, scrambleMoves: 130, multiplier: 1.25, fullCoverProb: 0.25 },
     hard: { glasses: 10, emptyGlasses: 1, coveredGlasses: 3, scrambleMoves: 200, multiplier: 1.5, fullCoverProb: 0.35 }
+};
+
+// Generator-moduser (kun hvor hardt vi scrambler – ikke hvor stort brettet er)
+const GENERATOR_MODES = {
+    casual: {
+        label: "Casual",
+        factor: 0.6    // litt under preset.scrambleMoves
+    },
+    challenging: {
+        label: "Challenging",
+        factor: 1.0    // rundt preset.scrambleMoves
+    },
+    brutal: {
+        label: "Brutal",
+        factor: 1.8    // betydelig mer blandet
+    },
+    insane: {
+        label: "Insane",
+        factor: 2.6    // veldig blandet (men fortsatt rask, ingen solver)
+    }
 };
 
 // ---- COVER RNG (for deterministic daily) ----
@@ -385,13 +409,16 @@ function scrambleStateSingleFruit(state, movesTarget, rng) {
     return state;
 }
 
-// Hovedgenerator
+// Hovedgenerator – bruker generatorDifficulty til å bestemme hvor mange scramble-moves
 function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
     const rng = seed == null ? Math.random : makeSeededRng(seed);
     let state = buildSolvedState(config, rng);
 
-    // bland godt med enkelt-frukt trekk
-    scrambleStateSingleFruit(state, scrambleMoves, rng);
+    const modeCfg = GENERATOR_MODES[generatorDifficulty] || GENERATOR_MODES.brutal;
+    const rawMoves = Math.round(scrambleMoves * modeCfg.factor);
+    const movesTarget = Math.max(10, rawMoves);
+
+    scrambleStateSingleFruit(state, movesTarget, rng);
 
     return state;
 }
@@ -602,11 +629,87 @@ function startNewGame(options = {}) {
     drawBoard();
 }
 
+// ---- GENERATOR-KNAPPER (Casual / Challenging / Brutal / Insane) ----
+
+function setGeneratorMode(mode) {
+    if (!GENERATOR_MODES[mode]) return;
+    generatorDifficulty = mode;
+
+    // Oppdater knappestil
+    const buttons = document.querySelectorAll(".fs-gen-btn");
+    buttons.forEach(btn => {
+        const isActive = btn.dataset.genMode === mode;
+        btn.classList.toggle("fs-gen-btn-active", isActive);
+        btn.style.fontWeight = isActive ? "700" : "400";
+    });
+
+    // Start nytt brett med valgt brett-vanskelighet (dropdown)
+    const diff = difficultySelect ? difficultySelect.value : "medium";
+    startNewGame({ difficulty: diff, mode: "scramble" });
+
+    statusEl.textContent = `New board – ${GENERATOR_MODES[mode].label} scramble.`;
+}
+
+function initGeneratorButtons() {
+    const wrapper = document.querySelector(".fs-wrapper");
+    if (!wrapper) return;
+
+    const board = document.getElementById("fs-board");
+
+    const bar = document.createElement("div");
+    bar.className = "fs-genbar";
+    bar.style.marginTop = "4px";
+    bar.style.marginBottom = "4px";
+    bar.style.fontSize = "0.9rem";
+    bar.style.display = "flex";
+    bar.style.alignItems = "center";
+    bar.style.gap = "6px";
+
+    const label = document.createElement("span");
+    label.textContent = "Scramble:";
+    label.style.opacity = "0.8";
+    bar.appendChild(label);
+
+    ["casual", "challenging", "brutal", "insane"].forEach(mode => {
+        const cfg = GENERATOR_MODES[mode];
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.textContent = cfg.label;
+        btn.dataset.genMode = mode;
+        btn.className = "fs-gen-btn";
+        btn.style.padding = "3px 10px";
+        btn.style.borderRadius = "999px";
+        btn.style.border = "none";
+        btn.style.cursor = "pointer";
+        btn.style.fontSize = "0.85rem";
+        btn.style.background = "#111827";
+        btn.style.color = "#e5e7eb";
+
+        if (mode === generatorDifficulty) {
+            btn.classList.add("fs-gen-btn-active");
+            btn.style.fontWeight = "700";
+        } else {
+            btn.style.fontWeight = "400";
+        }
+
+        btn.addEventListener("click", () => setGeneratorMode(mode));
+        bar.appendChild(btn);
+    });
+
+    // Legg den mellom topptekst og board
+    wrapper.insertBefore(bar, board);
+}
+
 // Knytt reset-knapp til UI-valg
 resetBtn.addEventListener("click", () => {
     const diff = difficultySelect ? difficultySelect.value : "medium";
     startNewGame({ difficulty: diff, mode: "scramble" });
 });
+
+// ---- INIT ----
+
+// Sett opp generator-knapper
+initGeneratorButtons();
 
 // initial start – bruk UI-valg hvis finnes
 const initialDiff = difficultySelect ? difficultySelect.value : "medium";
