@@ -1,28 +1,21 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Fruit Merge</title>
-    <link rel="stylesheet" href="style.css" />
-</head>
 <body>
+    <div class="container">
 
-    <div class="topbar">
-        <h1>🍓 Fruit Merge</h1>
-        <div class="stats">
-            <span id="score">Score: 0</span>
-            <span id="moves">Moves: 0</span>
-            <button id="newgame" class="btn">New game</button>
+        <div class="topbar">
+            <h1>🍓 Fruit Merge</h1>
+            <div class="stats">
+                <span id="score">Score: 0</span>
+                <span id="moves">Moves: 0</span>
+                <button id="newgame" class="btn">New game</button>
+            </div>
+            <p class="subtitle">
+                Match identical fruits in a straight line. Merge into higher level!
+            </p>
         </div>
-        <p class="subtitle">
-            Match <strong>two identical fruits</strong> in a straight line with no fruit between.
-            They merge into a higher fruit. Empty cells fill from top. Game over when the top row is full.
-        </p>
-    </div>
 
-    <div id="board" class="board"></div>
+        <div id="board" class="board"></div>
+
+    </div>
 
     <script src="game.js"></script>
 </body>
-</html>

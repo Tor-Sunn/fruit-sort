@@ -6,7 +6,9 @@ body {
     display: flex;
     justify-content: center;
 }
-
+.container {
+    max-width: 800px;
+}
 .topbar {
     max-width: 800px;
     margin-bottom: 20px;
@@ -45,6 +47,7 @@ h1 {
     grid-template-columns: repeat(9, 64px);
     grid-template-rows: repeat(9, 64px);
     gap: 6px;
+    justify-content: center;
 }
 
 .cell {

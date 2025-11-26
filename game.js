@@ -1,5 +1,5 @@
 // =====================
-// Fruit Merge – Prototype V1
+// Fruit Merge – Prototype V1 (FIXED)
 // =====================
 
 // --- CONFIG ---
@@ -18,38 +18,32 @@ const FRUITS = [
     "fruit_banana",
     "fruit_grape"
 ];
-// leaf block
+
 const LEAF = "leaf";
 
-// grid[row][col] = { type: "fruit_...", leafHits?: number }
 let grid = [];
 let selected = null;
 
 let score = 0;
 let moves = 0;
 
-// ----------------------------
 // DOM
-// ----------------------------
 const boardEl = document.getElementById("board");
 const scoreEl = document.getElementById("score");
 const movesEl = document.getElementById("moves");
 document.getElementById("newgame").onclick = newGame;
 
-// ----------------------------
-// Init
-// ----------------------------
+// INITIALIZE
 function newGame() {
     grid = [];
     score = 0;
     moves = 0;
     updateStats();
 
-    // populate grid randomly with fruits and occasional leaves
     for (let r = 0; r < ROWS; r++) {
         grid[r] = [];
         for (let c = 0; c < COLS; c++) {
-            const isLeaf = Math.random() < 0.06; // 6% leaf chance
+            const isLeaf = Math.random() < 0.06;
             if (isLeaf) grid[r][c] = { type: LEAF, leafHits: 2 + Math.floor(Math.random() * 3) };
             else grid[r][c] = { type: FRUITS[Math.floor(Math.random() * FRUITS.length)] };
         }
@@ -60,9 +54,7 @@ function newGame() {
 
 newGame();
 
-// ----------------------------
-// Rendering
-// ----------------------------
+// RENDER
 function render() {
     boardEl.innerHTML = "";
 
@@ -87,7 +79,6 @@ function render() {
                 cell.appendChild(img);
             }
 
-            // selected outline
             if (selected && selected.r === r && selected.c === c) {
                 cell.classList.add("selected");
             }
@@ -98,9 +89,7 @@ function render() {
     }
 }
 
-// ----------------------------
-// Interaction
-// ----------------------------
+// INPUT
 function handleClick(r, c) {
     if (!selected) {
         selected = { r, c };
@@ -108,7 +97,6 @@ function handleClick(r, c) {
         return;
     }
 
-    // same cell = cancel
     if (selected.r === r && selected.c === c) {
         selected = null;
         render();
@@ -121,9 +109,7 @@ function handleClick(r, c) {
     render();
 }
 
-// ----------------------------
-// Merge Logic
-// ----------------------------
+// MERGE LOGIC
 function attemptMerge(a, b) {
     const A = grid[a.r][a.c];
     const B = grid[b.r][b.c];
@@ -132,20 +118,20 @@ function attemptMerge(a, b) {
     if (A.type !== B.type) return;
 
     if (!isStraightLine(a, b)) return;
-    if (!pathClear(a, b)) return;
+    if (!isPathClear(a, b)) return;
 
     performMerge(a, b);
 }
 
 function isStraightLine(a, b) {
     return (
-        a.r === b.r || // horizontal
-        a.c === b.c || // vertical
-        Math.abs(a.r - b.r) === Math.abs(a.c - b.c) // diagonal
+        a.r === b.r ||
+        a.c === b.c ||
+        Math.abs(a.r - b.r) === Math.abs(a.c - b.c)
     );
 }
 
-function pathClear(a, b) {
+function isPathClear(a, b) {
     const dr = Math.sign(b.r - a.r);
     const dc = Math.sign(b.c - a.c);
 
@@ -160,14 +146,13 @@ function pathClear(a, b) {
     return true;
 }
 
+// FIXED MERGE (gravity + refill order)
 function performMerge(a, b) {
     const fruit = grid[a.r][a.c].type;
     const nextIndex = Math.min(FRUITS.length - 1, FRUITS.indexOf(fruit) + 1);
     const nextFruit = FRUITS[nextIndex];
 
-    // remove top fruit
     grid[a.r][a.c] = { type: null };
-    // overwritten: new fruit in bottom
     grid[b.r][b.c] = { type: nextFruit };
 
     score += 10 + nextIndex * 5;
@@ -176,6 +161,9 @@ function performMerge(a, b) {
 
     applyGravity();
     refill();
+    applyGravity(); // NEW
+    refill();       // NEW
+
     checkGameOver();
 }
 
@@ -184,14 +172,11 @@ function updateStats() {
     movesEl.textContent = `Moves: ${moves}`;
 }
 
-// ----------------------------
-// Gravity C-model
-// ----------------------------
+// GRAVITY
 function applyGravity() {
     for (let c = 0; c < COLS; c++) {
         for (let r = ROWS - 2; r >= 0; r--) {
             if (!grid[r][c].type && grid[r + 1][c].type) {
-                // fall down
                 for (let rr = r; rr < ROWS - 1; rr++) {
                     if (!grid[rr + 1][c].type) {
                         grid[rr + 1][c] = grid[rr][c];
@@ -203,14 +188,11 @@ function applyGravity() {
     }
 }
 
-// ----------------------------
-// Refill only open columns
-// ----------------------------
+// REFILL
 function refill() {
     for (let c = 0; c < COLS; c++) {
-        if (grid[0][c].type) continue; // blocked
+        if (grid[0][c].type) continue;
 
-        // count empties from top before hit
         let empties = 0;
         for (let r = 0; r < ROWS; r++) {
             if (!grid[r][c].type) empties++;
@@ -226,12 +208,10 @@ function refill() {
     }
 }
 
-// ----------------------------
-// Game Over
-// ----------------------------
+// GAME OVER
 function checkGameOver() {
     for (let c = 0; c < COLS; c++) {
-        if (!grid[0][c].type) return; // at least 1 open
+        if (!grid[0][c].type) return;
     }
     alert("Game Over – no space left at the top!");
 }
