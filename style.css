@@ -1,369 +1,283 @@
-    /* --- Layout --- */
+/* --- Layout --- */
 
 * {
-  box-sizing: border-box;
+    box-sizing: border-box;
 }
 
 body {
-  margin: 0;
-  padding: 20px;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: #0f172a;
-  color: #e5e7eb;
-  display: flex;
-  justify-content: center;
+    margin: 0;
+    padding: 20px;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #0f172a;
+    color: #e5e7eb;
+    display: flex;
+    justify-content: center;
 }
 
 .fs-wrapper {
-  width: 100%;
-  /* Raised max-width so grid columns can be wider and jars can grow */
-  max-width: 1400px;
+    width: 100%;
+    max-width: 1400px;
 }
 
 .fs-title {
-  margin: 0 0 4px;
-  font-size: 28px;
+    margin: 0 0 4px;
+    font-size: 28px;
 }
 
 .fs-sub {
-  margin: 0 0 16px;
-  color: #9ca3af;
-  font-size: 14px;
+    margin: 0 0 16px;
+    color: #9ca3af;
+    font-size: 14px;
 }
 
 .fs-topbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
-  flex-wrap: wrap;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
 }
 
 #fs-status {
-  flex: 1;
-  min-height: 20px;
-  font-size: 14px;
-  color: #fbbf24;
+    flex: 1;
+    min-height: 20px;
+    font-size: 14px;
+    color: #fbbf24;
 }
 
 #fs-reset {
-  padding: 6px 14px;
-  border-radius: 999px;
-  border: none;
-  background: #22c55e;
-  color: #022c22;
-  font-weight: 600;
-  cursor: pointer;
+    padding: 6px 14px;
+    border-radius: 999px;
+    border: none;
+    background: #22c55e;
+    color: #022c22;
+    font-weight: 600;
+    cursor: pointer;
 }
 
-/* --- Board (plass til 18 glass: 6 per rad * 3 rader) --- */
+/* --- Board --- */
 
-/* Use minmax so columns have a sensible minimum width (so jars can be larger).
-   The layout will still be responsive: columns expand, but never shrink below 180px. */
 .fs-board {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(180px, 1fr));
-  gap: 20px;
-  justify-content: center;
-  align-items: start;
-
-  /* MOVED FURTHER DOWN: increase space between header and board */
-  margin-top: 96px;
+    display: grid;
+    grid-template-columns: repeat(6, minmax(180px, 1fr));
+    gap: 20px;
+    justify-content: center;
+    align-items: start;
+    margin-top: 96px;
 }
 
 /* --- Glass --- */
 
 .fs-glass {
-  position: relative;
-  width: 100%;
-  /* larger target max width for jars (will take effect when grid cell allows it) */
-  max-width: 280px;
-  aspect-ratio: 3 / 5;
-  margin-inline: auto;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  cursor: pointer;
-  transition: transform 0.12s ease, box-shadow 0.12s ease;
-  transform-origin: center bottom;
+    position: relative;
+    width: 100%;
+    max-width: 280px;
+    aspect-ratio: 3 / 5;
+    margin-inline: auto;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    cursor: pointer;
+    transform-origin: center bottom;
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
 }
 
 .fs-glass--unused {
-  visibility: hidden;
+    visibility: hidden;
 }
 
 .fs-glass:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(0,0,0,0.35);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.35);
 }
 
-/* New selected visual: lift + warm inner glow + subtle pulse.
-   Removed the orange outline in favor of this animated, less brutal cue. */
+/* Selected glass */
+
 .fs-glass--selected {
-  /* lift and slightly enlarge */
-  transform: translateY(-8px) scale(1.02);
-  transition: transform 180ms cubic-bezier(.2,.9,.2,1), box-shadow 180ms ease;
-  /* soft outer shadow plus an inner warm glow using inset shadow on the jar image layer */
-  box-shadow:
-    0 18px 40px rgba(0,0,0,0.45),
-    0 6px 20px rgba(249,115,22,0.06);
-  border-radius: 12px;
-  /* subtle repeating pulse to draw attention without being distracting */
-  animation: selected-pulse 2000ms ease-in-out infinite;
+    transform: translateY(-8px) scale(1.02);
+    transition: transform 180ms cubic-bezier(.2,.9,.2,1), box-shadow 180ms ease;
+    box-shadow: 0 18px 40px rgba(0,0,0,0.45), 0 6px 20px rgba(249,115,22,0.06);
+    border-radius: 12px;
+    animation: selected-pulse 2000ms ease-in-out infinite;
 }
 
-/* Apply a glow to the jar inner image so the jar appears rim-lit */
-.fs-glass--selected .fs-jar-inner-img {
-  filter: drop-shadow(0 6px 18px rgba(249,115,22,0.08));
-  transition: filter 180ms ease;
-  z-index: 2; /* ensure glow sits above the jar base */
-}
+    .fs-glass--selected .fs-jar-inner-img {
+        filter: drop-shadow(0 6px 18px rgba(249,115,22,0.08));
+        transition: filter 180ms ease;
+        z-index: 2;
+    }
 
-/* Ensure the fruit stack sits above the jar inner image when selected.
-   Previously the jar inner got a higher z-index when selected and covered the fruits. */
-.fs-glass--selected .fs-fruit-stack {
-  z-index: 6;
-}
+    .fs-glass--selected .fs-fruit-stack {
+        z-index: 6;
+    }
 
-/* Make the fruits inside the selected jar bob gently */
-.fs-glass--selected .fs-fruit {
-  animation: fruit-bob 1200ms ease-in-out infinite;
-  animation-delay: calc(var(--fruit-index, 0) * 60ms);
-  transform-origin: center bottom;
-  /* make the fruit itself positioned so z-index rules work reliably */
-  position: relative;
-  z-index: 7;
-}
+    .fs-glass--selected .fs-fruit {
+        animation: fruit-bob 1200ms ease-in-out infinite;
+        animation-delay: calc(var(--fruit-index, 0) * 60ms);
+        position: relative;
+        z-index: 7;
+    }
 
-/* remove native focus ring on jars (override UA focus) */
 .fs-glass:focus,
 .fs-glass:focus-visible {
-  outline: none !important;
-  box-shadow: none !important;
+    outline: none !important;
+    box-shadow: none !important;
 }
 
-/* Jar grafikklag: inner under frukt (img-based) */
+/* Jar image */
 
-/* Anchor jar image to the bottom of the glass so rim lines up predictably.
-   This makes the fruit-stack bottom align visually with the jar interior. */
 .fs-jar-inner-img {
-  position: absolute;
-  left: 50%;
-  bottom: 4%;
-  /* width controls jar visual size relative to .fs-glass */
-  width: 92%;
-  height: auto;
-  transform: translateX(-50%);
-  object-fit: contain;
-  pointer-events: none;
-  z-index: 0;
-  opacity: 0.98;
+    position: absolute;
+    left: 50%;
+    bottom: 4%;
+    width: 92%;
+    height: auto;
+    transform: translateX(-50%);
+    object-fit: contain;
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.98;
 }
 
-/* Frukt-stack inni glasset (midtre lag) */
+/* Fruit stack */
 
-/* Positioned absolute so stack sits flush to bottom of jar.
-   Lowered and shortened the stack so fruits start deeper inside the jar. */
 .fs-fruit-stack {
-  position: absolute;
-  z-index: 1;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 46%;
-  /* stack occupies the lower portion of the jar graphic */
-  height: 58%;
-  /* anchor a little above true bottom so fruits sit inside rim */
-  bottom: 10%;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 4px;
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 46%;
+    height: 58%;
+    bottom: 10%;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 4px;
+    z-index: 1;
 }
 
-/* Slightly larger fruit but still constrained so 4 items fit nicely.
-   object-position center bottom keeps visuals hugging the jar bottom. */
-/* INCREASED ~20%: desktop from 30% -> 36% */
 .fs-fruit {
-  display: block;
-  max-width: 100%;
-  width: auto;
-  height: auto;
-  pointer-events: none;
-  object-fit: contain;
-  object-position: center bottom;
-  max-height: 36%;
-  /* position set to allow z-index on individual fruits if needed */
-  position: relative;
+    display: block;
+    max-width: 100%;
+    max-height: 36%;
+    object-fit: contain;
+    object-position: center bottom;
+    pointer-events: none;
+    position: relative;
+}
+
+/* --- Leaf Overlay (modern system) --- */
+
+.fs-leaf-wrap {
+    position: absolute;
+    z-index: 8;
+    pointer-events: none;
+    transform-origin: center center;
+    display: block;
+}
+
+.fs-leaf-img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+    pointer-events: none;
+}
+
+.fs-leaf-q {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    display: inline-block;
+    width: 1.6em;
+    height: 1.6em;
+    line-height: 1.6em;
+    border-radius: 999px;
+    background: rgba(0,0,0,0.55);
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.95em;
+    text-align: center;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.35);
+    pointer-events: none;
+}
+
+/* Hidden leaf (when removed) */
+.fs-leaf--hidden {
+    opacity: 0;
+    transform: scale(0.95);
+    transition: opacity 240ms ease, transform 240ms ease;
 }
 
 /* --- Animations --- */
 
 @keyframes selected-pulse {
-  0% {
-    box-shadow:
-      0 14px 32px rgba(0,0,0,0.44),
-      0 4px 12px rgba(249,115,22,0.04);
-  }
-  50% {
-    box-shadow:
-      0 22px 48px rgba(0,0,0,0.48),
-      0 8px 26px rgba(249,115,22,0.08);
-    transform: translateY(-9px) scale(1.025);
-  }
-  100% {
-    box-shadow:
-      0 14px 32px rgba(0,0,0,0.44),
-      0 4px 12px rgba(249,115,22,0.04);
-    transform: translateY(-8px) scale(1.02);
-  }
+    0% {
+        box-shadow: 0 14px 32px rgba(0,0,0,0.44), 0 4px 12px rgba(249,115,22,0.04);
+    }
+
+    50% {
+        box-shadow: 0 22px 48px rgba(0,0,0,0.48), 0 8px 26px rgba(249,115,22,0.08);
+        transform: translateY(-9px) scale(1.025);
+    }
+
+    100% {
+        box-shadow: 0 14px 32px rgba(0,0,0,0.44), 0 4px 12px rgba(249,115,22,0.04);
+        transform: translateY(-8px) scale(1.02);
+    }
 }
 
 @keyframes fruit-bob {
-  0% { transform: translateY(0) translateZ(0); }
-  50% { transform: translateY(-6px) translateZ(0); }
-  100% { transform: translateY(0) translateZ(0); }
+    0% {
+        transform: translateY(0);
+    }
+
+    50% {
+        transform: translateY(-6px);
+    }
+
+    100% {
+        transform: translateY(0);
+    }
 }
 
-/* --- Responsivt --- */
+/* --- Responsive --- */
 
 @media (max-width: 1200px) {
-  /* allow smaller screens to reduce the min width */
-  .fs-board {
-    grid-template-columns: repeat(6, minmax(140px, 1fr));
-  }
-  .fs-glass {
-    max-width: 240px;
-  }
-  .fs-jar-inner-img {
-    bottom: 4%;
-    width: 96%;
-  }
-  .fs-fruit-stack {
-    width: 50%;
-    height: 56%;
-    gap: 6px;
-    bottom: 9%;
-  }
-  /* medium screens from 28% -> ~34% */
-  .fs-fruit {
-    max-height: 34%;
-  }
-  .fs-jar-inner,
-  .fs-jar-outer {
-    background-size: 96% auto;
-  }
+    .fs-board {
+        grid-template-columns: repeat(6, minmax(140px, 1fr));
+    }
+
+    .fs-glass {
+        max-width: 240px;
+    }
+
+    .fs-fruit-stack {
+        width: 50%;
+        height: 56%;
+    }
+
+    .fs-fruit {
+        max-height: 34%;
+    }
 }
 
 @media (max-width: 700px) {
-  .fs-board {
-    grid-template-columns: repeat(3, 1fr);
-  }
-  .fs-glass {
-    max-width: 160px;
-  }
-  .fs-jar-inner-img {
-    bottom: 4%;
-    width: 94%;
-  }
-  .fs-fruit-stack {
-    width: 52%;
-    height: 52%;
-    bottom: 8%;
-    gap: 6px;
-  }
-  /* small screens from 26% -> ~31% */
-  .fs-fruit {
-    max-height: 31%;
-  }
-  .fs-jar-inner,
-  .fs-jar-outer {
-    background-size: 94% auto;
-  }
+    .fs-board {
+        grid-template-columns: repeat(3, 1fr);
+    }
+
+    .fs-glass {
+        max-width: 160px;
+    }
+
+    .fs-fruit-stack {
+        width: 52%;
+        height: 52%;
+    }
+
+    .fs-fruit {
+        max-height: 31%;
+    }
 }
-
-/* leaf overlay (use your img/leaf.png) */
-.fs-leaf {
-  position: absolute;
-  z-index: 8;            /* above fruits */
-  pointer-events: none;  /* clicks pass through */
-  background-image: url("img/leaf.png");
-  background-repeat: no-repeat;
-  background-size: contain;
-  background-position: center;
-  opacity: 0.98;
-  filter: drop-shadow(0 6px 12px rgba(0,0,0,0.28));
-  transition: transform 160ms ease, opacity 160ms ease;
-  /* we set left/top/width/height inline in JS to match the fruit */
-}
-
-/* question-mark badge centered over leaf */
-.fs-leaf::after {
-  content: "?";
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  display: inline-block;
-  width: 2.2em;
-  height: 2.2em;
-  line-height: 2.2em;
-  border-radius: 999px;
-  background: rgba(0,0,0,0.55);
-  color: #fff;
-  font-weight: 700;
-  font-family: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
-  font-size: 1.1em;
-  text-align: center;
-  text-shadow: 0 1px 0 rgba(0,0,0,0.5);
-  box-shadow: 0 4px 10px rgba(0,0,0,0.35);
-  pointer-events: none;
-}
-
-/* add these near the .fs-leaf rules (replace previous .fs-leaf and ::after) */
-
-.fs-leaf-wrap {
-  position: absolute;
-  z-index: 8;
-  pointer-events: none;
-  transform-origin: center center;
-  display: block;
-}
-
-.fs-leaf-img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  display: block;
-  pointer-events: none;
-  user-select: none;
-}
-
-.fs-leaf-q {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  display: inline-block;
-  width: 1.6em;
-  height: 1.6em;
-  line-height: 1.6em;
-  border-radius: 999px;
-  background: rgba(0,0,0,0.55);
-  color: #fff;
-  font-weight: 700;
-  font-family: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
-  font-size: 0.95em;
-  text-align: center;
-  text-shadow: 0 1px 0 rgba(0,0,0,0.5);
-  box-shadow: 0 4px 10px rgba(0,0,0,0.35);
-  pointer-events: none;
-}
-
-/* legacy fallback class if JS removes leafs but you want a transition */
-.fs-leaf--hidden {
-  opacity: 0;
-  transform: scale(0.95);
-  transition: opacity 240ms ease, transform 240ms ease;
-}
-
