@@ -1,3 +1,8 @@
+// =======================
+// Fruit Sort – game.js
+// Stabil, enkel, løsbart & blandet
+// =======================
+
 // ---- KONSTANTER ----
 
 const MAX_GLASSES = 18;       // 6 i bredden * 3 rader
@@ -5,7 +10,6 @@ const GLASSES_PER_ROW = 6;
 const GLASS_CAPACITY = 4;
 
 // Standard brett: 6 glass (4 fylt, 2 tomme)
-// coveredGlasses = hvor mange glass som skal få dekning
 const DEFAULT_LEVEL_CONFIG = {
     glasses: 6,
     emptyGlasses: 2,
@@ -37,7 +41,8 @@ const boardEl = document.getElementById("fs-board");
 const movesEl = document.getElementById("fs-moves");
 const statusEl = document.getElementById("fs-status");
 const resetBtn = document.getElementById("fs-reset");
-    
+const difficultySelect = document.getElementById("fs-difficulty");
+const fastHardCheckbox = document.getElementById("fs-fast-hard"); // brukes ikke i logikk, men kan styre UI
 
 // ---- STATE ----
 
@@ -46,26 +51,30 @@ let activeLevel = { ...DEFAULT_LEVEL_CONFIG };
 let selectedGlassIndex = null;
 let moves = 0;
 
-// initialCoveredPositions: index -> array of absolute indices (index-from-bottom) that were covered at game start.
-// Example: initialCoveredPositions[2] = [1,2] means at start jar 2 had leaves covering the fruits at bottom-index 1 and 2.
+// initialCoveredPositions: index -> array av absolute indices (index-from-bottom) som var dekket ved start
 let initialCoveredPositions = {};
 
-// coveredPositions: mutable remaining covered data for each glass.
-// Each entry is either { positions: [absIndex,...] } (partial leaves) or { fullCover: N } (whole-glass cover).
+// coveredPositions: mutable remaining covered data for hvert glass.
+// Enten { positions: [absIndex,...] } (delvis dekke) eller { fullCover: N } (fullt dekket)
 let coveredPositions = {};
 
-// ---- HELPERS ----
+// Score / daily
+let startTime = null;
+let lastScore = 0;
+let levelSeed = null; // lagrer seed for daily / reproduserbare brett
 
-function shuffle(array) {
+// ---- HELPERFUNKSJONER ----
+
+function shuffleInPlace(array, rng = Math.random) {
     for (let i = array.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
+        const j = Math.floor(rng() * (i + 1));
         [array[i], array[j]] = [array[j], array[i]];
     }
     return array;
 }
 
-function randInt(min, max) { // inclusive
-    return Math.floor(Math.random() * (max - min + 1)) + min;
+function randInt(min, max, rng = Math.random) { // inclusive
+    return Math.floor(rng() * (max - min + 1)) + min;
 }
 
 // Sjekk om et glass er "komplett" (4 like frukter)
@@ -73,18 +82,6 @@ function isGlassComplete(stack) {
     if (stack.length !== GLASS_CAPACITY) return false;
     return stack.every(f => f === stack[0]);
 }
-
-// ---- DIFFICULTY, SCORING, DAILY ----
-
-const DIFFICULTY_PRESETS = {
-    easy:   { glasses: 6,  emptyGlasses: 1, coveredGlasses: 2, scrambleMoves: 120, multiplier: 1.0,  fullCoverProb: 0.12, minSolveMoves: 6 },
-    medium: { glasses: 8,  emptyGlasses: 1, coveredGlasses: 3, scrambleMoves: 180, multiplier: 1.25, fullCoverProb: 0.30, minSolveMoves: 12 },
-    hard:   { glasses: 10, emptyGlasses: 1, coveredGlasses: 4, scrambleMoves: 260, multiplier: 1.5,  fullCoverProb: 0.40, minSolveMoves: 20 }
-};
-
-let startTime = null;
-let lastScore = 0;
-let levelSeed = null; // store seed for daily/hashable boards
 
 // Simple seeded RNG (Mulberry32)
 function makeSeededRng(seed) {
@@ -97,29 +94,13 @@ function makeSeededRng(seed) {
     };
 }
 
-// coverRng used for deterministic cover placement (daily/seeded)
-let coverRng = Math.random;
-function setCoverRng(seed) {
-    coverRng = (seed == null) ? Math.random : makeSeededRng(seed);
-}
-// integer RNG helper using coverRng
-function coverRandInt(min, max) {
-    return Math.floor(coverRng() * (max - min + 1)) + min;
-}
-
 // deterministic daily generator using date seed (YYYY-MM-DD -> int)
 function dateSeedFromDate(d) {
     const y = d.getUTCFullYear(), m = d.getUTCMonth() + 1, day = d.getUTCDate();
     return ((y * 100 + m) * 100 + day) >>> 0;
 }
 
-function generateDailyLevel(config, date = new Date(), scrambleMoves = 120) {
-    const seed = dateSeedFromDate(date);
-    levelSeed = seed;
-    return generateSolvableLevel(config, scrambleMoves, seed);
-}
-
-// compute a simple score: higher for fewer moves and shorter time.
+// compute a simple score: høyere for færre trekk og kortere tid.
 function computeScore(movesCount, elapsedMs, difficultyMultiplier = 1) {
     const elapsedSec = Math.max(1, Math.round(elapsedMs / 1000));
     const base = 1000 * difficultyMultiplier;
@@ -127,44 +108,43 @@ function computeScore(movesCount, elapsedMs, difficultyMultiplier = 1) {
     return score;
 }
 
-// stubs for submitting scores — replace endpoints with your eqsy.io API
-async function submitGlobalScore(payload) {
-    try {
-        // await fetch("https://api.eqsy.io/fruit-sort/highscore", { method: "POST", body: JSON.stringify(payload) });
-        console.log("submitGlobalScore", payload);
-    } catch (e) {
-        console.warn("submitGlobalScore failed", e);
-    }
+// ---- DIFFICULTY / PRESETS ----
+
+const DIFFICULTY_PRESETS = {
+    easy: { glasses: 6, emptyGlasses: 2, coveredGlasses: 1, scrambleMoves: 70, multiplier: 1.0, fullCoverProb: 0.10 },
+    medium: { glasses: 8, emptyGlasses: 1, coveredGlasses: 2, scrambleMoves: 130, multiplier: 1.25, fullCoverProb: 0.25 },
+    hard: { glasses: 10, emptyGlasses: 1, coveredGlasses: 3, scrambleMoves: 200, multiplier: 1.5, fullCoverProb: 0.35 }
+};
+
+// ---- COVER RNG (for deterministic daily) ----
+
+let coverRng = Math.random;
+
+function setCoverRng(seed) {
+    coverRng = (seed == null) ? Math.random : makeSeededRng(seed);
 }
 
-async function submitDailyScore(payload) {
-    try {
-        // await fetch("https://api.eqsy.io/fruit-sort/daily", { method: "POST", body: JSON.stringify(payload) });
-        console.log("submitDailyScore", payload);
-    } catch (e) {
-        console.warn("submitDailyScore failed", e);
-    }
+function coverRandInt(min, max) {
+    return randInt(min, max, coverRng);
 }
 
 // ---- RENDERING / LEAVES ----
 
-// Compute bottom percentage for a fruit at indexFromBottom (0 = bottom) so leaf sits exactly over that fruit.
-// Uses the current stack length so fallback percent placement matches the visible fruit spacing.
+// Compute bottom percentage for a fruit at indexFromBottom (0 = bunn)
 function computeLeafBottomPercent(indexFromBottom, stackLen = GLASS_CAPACITY) {
-    const base = 10; // bottom anchor in CSS
-    const height = 58; // stack height percent in CSS (space used by fruit stack)
-    // distribute across actual slots in current stack (stackLen fruits -> stackLen-1 intervals)
+    const base = 10; // bottom anchor i CSS
+    const height = 58; // prosent av høyden hvor fruktene ligger
     const slots = Math.max(1, stackLen - 1);
     const step = height / slots;
     return base + indexFromBottom * step;
 }
 
-// Position all leaf wrappers to match their fruit elements.
+// Plasser alle blad-wrappere over fruktene
 function positionLeaves() {
     const wraps = document.querySelectorAll(".fs-leaf-wrap");
     wraps.forEach(w => {
         const glassIndex = Number(w.dataset.glass);
-        const coveredIndex = Number(w.dataset.coveredIndex); // absolute index-from-bottom
+        const coveredIndex = Number(w.dataset.coveredIndex); // 0 = bunn
         const glassEl = document.querySelector(`.fs-glass[data-index="${glassIndex}"]`);
         if (!glassEl) return;
         const stackEl = glassEl.querySelector(".fs-fruit-stack");
@@ -172,14 +152,12 @@ function positionLeaves() {
 
         const fruitImgs = stackEl.querySelectorAll(".fs-fruit");
         const stack = glasses[glassIndex] || [];
-        // Map coveredIndex (0=bottom) to DOM index: DOM[0]=top ... DOM[n-1]=bottom
-        const domIndex = (stack.length - 1) - coveredIndex;
-        // prefer exact fruitEl; if missing, fall back to bottom fruit, then top fruit, then null
+        const domIndex = (stack.length - 1) - coveredIndex; // DOM[0]=topp
+
         let fruitEl = null;
         if (domIndex >= 0 && domIndex < fruitImgs.length) fruitEl = fruitImgs[domIndex];
-        else if (fruitImgs.length > 0) fruitEl = fruitImgs[fruitImgs.length - 1]; // bottom fruit
+        else if (fruitImgs.length > 0) fruitEl = fruitImgs[fruitImgs.length - 1];
 
-        // position using measured fruit if possible
         if (fruitEl && fruitEl.clientHeight > 0) {
             const leftPx = fruitEl.offsetLeft + fruitEl.offsetWidth / 2;
             const topPx = fruitEl.offsetTop + fruitEl.offsetHeight / 2;
@@ -196,10 +174,7 @@ function positionLeaves() {
             w.style.transform = `translate(-50%, -50%)`;
             w.style.bottom = "";
         } else {
-            // fallback percent placement (when measurements not available)
-            // compute percent relative to stack layout using actual stack length
             const bottomPct = computeLeafBottomPercent(coveredIndex, stack.length || 1);
-            // keep leaf slightly lower for better coverage
             const lowered = Math.max(0, bottomPct - 3);
             w.style.left = `50%`;
             w.style.transform = `translateX(-50%)`;
@@ -211,7 +186,22 @@ function positionLeaves() {
     });
 }
 
-// Render the board including leaves and full covers
+// Throttle positionLeaves kall
+const schedulePositionLeaves = (() => {
+    let scheduled = false;
+    return () => {
+        if (scheduled) return;
+        scheduled = true;
+        requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+                positionLeaves();
+                scheduled = false;
+            })
+        );
+    };
+})();
+
+// Tegn hele brettet
 function drawBoard() {
     boardEl.innerHTML = "";
 
@@ -235,8 +225,8 @@ function drawBoard() {
         jarInnerImg.src = "img/jar_inner.png";
         jarInnerImg.alt = "jar inner";
         jarInnerImg.draggable = false;
-        jarInnerImg.addEventListener('load', schedulePositionLeaves);
-        jarInnerImg.addEventListener('error', schedulePositionLeaves);
+        jarInnerImg.addEventListener("load", schedulePositionLeaves);
+        jarInnerImg.addEventListener("error", schedulePositionLeaves);
         glassEl.appendChild(jarInnerImg);
 
         const stackEl = document.createElement("div");
@@ -244,7 +234,7 @@ function drawBoard() {
 
         const stack = glasses[i] || [];
 
-        // Render fruits (top of array = top of jar)
+        // Render frukter (array[0] = bunn)
         for (let s = stack.length - 1; s >= 0; s--) {
             const fruitName = stack[s];
             const img = document.createElement("img");
@@ -252,19 +242,19 @@ function drawBoard() {
             img.src = `img/${fruitName}.png`;
             img.alt = fruitName;
             img.draggable = false;
-            img.style.setProperty('--fruit-index', String(stack.length - 1 - s));
-            img.addEventListener('load', schedulePositionLeaves);
-            img.addEventListener('error', schedulePositionLeaves);
+            img.style.setProperty("--fruit-index", String(stack.length - 1 - s));
+            img.addEventListener("load", schedulePositionLeaves);
+            img.addEventListener("error", schedulePositionLeaves);
             stackEl.appendChild(img);
         }
 
         glassEl.appendChild(stackEl);
 
-        // Render covers:
+        // Render cover / blader
         const cover = coveredPositions[i];
 
-        // Full cover overlay: render a single overlay that hides the whole glass
         if (cover && cover.fullCover && cover.fullCover > 0 && i < activeLevel.glasses) {
+            // full overlay
             const overlay = document.createElement("div");
             overlay.className = "fs-full-cover";
             overlay.setAttribute("aria-hidden", "true");
@@ -277,446 +267,150 @@ function drawBoard() {
 
             stackEl.appendChild(overlay);
         } else {
-            // Partial leaves
+            // delvis dekke
             const initialPositions = initialCoveredPositions[i] || [];
             const remainingPositions = (cover && Array.isArray(cover.positions)) ? cover.positions : [];
 
-            if (initialPositions.length > 0 && remainingPositions.length > 0 && i < activeLevel.glasses && stack.length > 0) {
-                remainingPositions.slice().sort((a, b) => b - a).forEach(pos => {
-                    if (pos < 0 || pos > stack.length - 1) return;
+            if (
+                initialPositions.length > 0 &&
+                remainingPositions.length > 0 &&
+                i < activeLevel.glasses &&
+                stack.length > 0
+            ) {
+                remainingPositions
+                    .slice()
+                    .sort((a, b) => b - a)
+                    .forEach(pos => {
+                        if (pos < 0 || pos > stack.length - 1) return;
 
-                    const leafWrap = document.createElement("div");
-                    leafWrap.className = "fs-leaf-wrap";
-                    leafWrap.setAttribute("aria-hidden", "true");
-                    leafWrap.dataset.glass = String(i);
-                    leafWrap.dataset.coveredIndex = String(pos);
+                        const leafWrap = document.createElement("div");
+                        leafWrap.className = "fs-leaf-wrap";
+                        leafWrap.setAttribute("aria-hidden", "true");
+                        leafWrap.dataset.glass = String(i);
+                        leafWrap.dataset.coveredIndex = String(pos);
 
-                    // Use stack-aware percent placement for fallback values
-                    const bottomPct = computeLeafBottomPercent(pos, stack.length);
-                    leafWrap.style.left = "50%";
-                    leafWrap.style.transform = "translateX(-50%)";
-                    leafWrap.style.bottom = `${bottomPct}%`;
-                    leafWrap.style.width = `66%`;
-                    leafWrap.style.height = `66%`;
+                        const bottomPct = computeLeafBottomPercent(pos, stack.length);
+                        leafWrap.style.left = "50%";
+                        leafWrap.style.transform = "translateX(-50%)";
+                        leafWrap.style.bottom = `${bottomPct}%`;
+                        leafWrap.style.width = `66%`;
+                        leafWrap.style.height = `66%`;
 
-                    const leafImg = document.createElement("img");
-                    leafImg.className = "fs-leaf-img";
-                    leafImg.src = "img/leaf.png";
-                    leafImg.alt = "leaf";
-                    leafImg.draggable = false;
-                    leafImg.style.width = "100%";
-                    leafImg.style.height = "100%";
-                    leafImg.style.display = "block";
-                    leafImg.addEventListener('load', schedulePositionLeaves);
-                    leafImg.addEventListener('error', schedulePositionLeaves);
+                        const leafImg = document.createElement("img");
+                        leafImg.className = "fs-leaf-img";
+                        leafImg.src = "img/leaf.png";
+                        leafImg.alt = "leaf";
+                        leafImg.draggable = false;
+                        leafImg.style.width = "100%";
+                        leafImg.style.height = "100%";
+                        leafImg.style.display = "block";
+                        leafImg.addEventListener("load", schedulePositionLeaves);
+                        leafImg.addEventListener("error", schedulePositionLeaves);
 
-                    const q = document.createElement("span");
-                    q.className = "fs-leaf-q";
-                    q.textContent = "?";
+                        const q = document.createElement("span");
+                        q.className = "fs-leaf-q";
+                        q.textContent = "?";
 
-                    leafWrap.appendChild(leafImg);
-                    leafWrap.appendChild(q);
-
-                    stackEl.appendChild(leafWrap);
-                });
+                        leafWrap.appendChild(leafImg);
+                        leafWrap.appendChild(q);
+                        stackEl.appendChild(leafWrap);
+                    });
             }
         }
 
         boardEl.appendChild(glassEl);
     }
 
-    // schedule a positioning pass once DOM nodes are in place
     schedulePositionLeaves();
 }
 
-// Throttle scheduling for positionLeaves so we don't run it excessively while images load.
-const schedulePositionLeaves = (() => {
-    let scheduled = false;
-    return () => {
-        if (scheduled) return;
-        scheduled = true;
-        requestAnimationFrame(() => requestAnimationFrame(() => {
-            positionLeaves();
-            scheduled = false;
-        }));
-    };
-})();
+// ---- NIVÅGENERERING (ENKEL, STABIL) ----
 
-// --- Hybrid generator + helpers (replace existing generateSolvableLevel and old helpers) ---
+// Bygg helt løst nivå: hver frukt sin egen stabel
+function buildSolvedState(config, rng) {
+    const { glasses: numGlasses, emptyGlasses } = config;
+    const nonEmpty = numGlasses - emptyGlasses;
 
-// Canonical key for solver (only the usedCount first glasses)
-function canonicalStateKey(state, usedCount) {
-    return state.slice(0, usedCount).map(stack => stack.join(",")).join("|");
-}
+    const pool = shuffleInPlace([...FRUIT_POOL], rng).slice(0, nonEmpty);
 
-// All legal group-pour moves for a state
-function getLegalPours(state) {
-    const total = state.length;
-    const pours = [];
-    for (let from = 0; from < total; from++) {
-        const fstack = state[from];
-        if (!fstack || fstack.length === 0) continue;
-        const topFruit = fstack[fstack.length - 1];
+    const state = pool.map(f => Array.from({ length: GLASS_CAPACITY }, () => f));
+    for (let i = 0; i < emptyGlasses; i++) state.push([]);
 
-        // count consecutive identical at top
-        let run = 0;
-        for (let i = fstack.length - 1; i >= 0 && fstack[i] === topFruit; i--) run++;
-
-        for (let to = 0; to < total; to++) {
-            if (to === from) continue;
-            const tstack = state[to];
-            if (!tstack) continue;
-            const available = GLASS_CAPACITY - tstack.length;
-            if (available <= 0) continue;
-            if (tstack.length === 0 || tstack[tstack.length - 1] === topFruit) {
-                const canMove = Math.min(run, available);
-                if (canMove > 0) pours.push({ from, to, count: canMove });
-            }
-        }
-    }
-    return pours;
-}
-
-// Apply a pour (on a copy) and return the new state
-function applyPourCopy(state, move) {
-    const copy = state.map(s => s.slice());
-    for (let i = 0; i < move.count; i++) {
-        copy[move.to].push(copy[move.from].pop());
-    }
-    return copy;
-}
-
-// Check if a state (first usedCount glasses) is solved (only full identical stacks or empty)
-function isStateSolved(st, usedCount) {
-    for (let i = 0; i < usedCount; i++) {
-        const stack = st[i];
-        if (stack.length === 0) continue;
-        if (stack.length !== GLASS_CAPACITY) return false;
-        for (let j = 1; j < stack.length; j++) {
-            if (stack[j] !== stack[0]) return false;
-        }
-    }
-    return true;
-}
-
-// Lightweight BFS solver: returns minimal group-pour moves up to maxDepth (Infinity if not found)
-function findMinSolutionMoves(startState, usedCount, maxDepth = 22) {
-    const startKey = canonicalStateKey(startState, usedCount);
-    if (isStateSolved(startState, usedCount)) return 0;
-
-    const queue = [{ state: startState.map(s => s.slice()), depth: 0 }];
-    const seen = new Map();
-    seen.set(startKey, 0);
-
-    while (queue.length) {
-        const node = queue.shift();
-        if (node.depth >= maxDepth) continue;
-
-        const pours = getLegalPours(node.state);
-        for (const mv of pours) {
-            const next = applyPourCopy(node.state, mv);
-            const key = canonicalStateKey(next, usedCount);
-            const prev = seen.get(key);
-            if (prev !== undefined && prev <= node.depth + 1) continue;
-
-            const nextDepth = node.depth + 1;
-            if (isStateSolved(next, usedCount)) return nextDepth;
-
-            seen.set(key, nextDepth);
-            queue.push({ state: next, depth: nextDepth });
-        }
-    }
-
-    return Infinity;
-}
-
-// Reverse-scramble using group-pours. Prefer partial moves to avoid leaving the board fully solved.
-function performScrambleOnce(state, movesTarget, rng, maxAttempts = 2000) {
-    const total = state.length;
-    let attempts = 0;
-    let moves = 0;
-    let lastMove = null;
-
-    while (moves < movesTarget && attempts < maxAttempts) {
-        attempts++;
-        const pours = getLegalPours(state);
-        if (pours.length === 0) break;
-
-        // avoid immediate reversal
-        const candidates = pours.filter(p => !(lastMove && p.from === lastMove.to && p.to === lastMove.from));
-        const pool = candidates.length ? candidates : pours;
-        const mv = pool[Math.floor(rng() * pool.length)];
-
-        // Decide how many to move: bias toward smaller moves so we break solved stacks.
-        let count = mv.count;
-        const toLen = state[mv.to].length;
-
-        if (mv.count > 1) {
-            // If pouring into an empty jar, avoid moving entire stack (would keep board solved)
-            if (toLen === 0 && mv.count === GLASS_CAPACITY) {
-                // move between 1 and mv.count-1
-                count = Math.floor(rng() * (mv.count - 1)) + 1;
-            } else {
-                // probabilistically prefer small moves (single-fruit most of the time)
-                const r = rng();
-                if (r < 0.6) count = 1;
-                else if (r < 0.9) count = Math.max(1, Math.floor(mv.count / 2));
-                else count = mv.count;
-            }
-        }
-
-        // perform the pour (move `count` fruits)
-        for (let i = 0; i < count; i++) {
-            const fruit = state[mv.from].pop();
-            state[mv.to].push(fruit);
-        }
-
-        lastMove = { from: mv.from, to: mv.to };
-        moves++;
-    }
+    while (state.length < numGlasses) state.push([]);
+    while (state.length < MAX_GLASSES) state.push([]);
 
     return state;
 }
 
-// Inject small "conflicts" by moving single fruits to wrong stacks to raise difficulty
-function injectConflicts(state, usedCount, rng, injections = 2) {
-    for (let n = 0; n < injections; n++) {
-        const donors = [];
-        for (let i = 0; i < usedCount; i++) if (state[i].length > 0) donors.push(i);
-        if (!donors.length) return state;
+// Reverse-scramble med ENKELT-frukt flytt
+// Dette gir alltid et løsbart brett, men mye mer blandet enn "flytt hele stabelen".
+function scrambleStateSingleFruit(state, movesTarget, rng) {
+    const usedCount = activeLevel ? activeLevel.glasses : state.length;
+    const maxAttempts = movesTarget * 10;
 
-        const from = donors[Math.floor(rng() * donors.length)];
+    let movesDone = 0;
+    let attempts = 0;
+
+    while (movesDone < movesTarget && attempts < maxAttempts) {
+        attempts++;
+
+        const fromCandidates = [];
+        for (let i = 0; i < usedCount; i++) {
+            if (state[i].length > 0) fromCandidates.push(i);
+        }
+        if (!fromCandidates.length) break;
+
+        const from = fromCandidates[randInt(0, fromCandidates.length - 1, rng)];
         const fromStack = state[from];
         const fruit = fromStack[fromStack.length - 1];
 
-        const conflict = [];
-        const neutral = [];
+        const toCandidates = [];
         for (let j = 0; j < usedCount; j++) {
             if (j === from) continue;
             const tstack = state[j];
             if (tstack.length >= GLASS_CAPACITY) continue;
-            if (tstack.length === 0) neutral.push(j);
-            else if (tstack[tstack.length - 1] !== fruit) conflict.push(j);
-            else neutral.push(j);
+            if (tstack.length === 0 || tstack[tstack.length - 1] === fruit) {
+                toCandidates.push(j);
+            }
         }
-        if (!conflict.length && !neutral.length) return state;
+        if (!toCandidates.length) continue;
 
-        const pool = conflict.length ? conflict : neutral;
-        const to = pool[Math.floor(rng() * pool.length)];
-        state[to].push(state[from].pop());
+        const to = toCandidates[randInt(0, toCandidates.length - 1, rng)];
+
+        // flytt én frukt
+        state[to].push(fromStack.pop());
+        movesDone++;
     }
+
     return state;
 }
 
-// Hybrid generator: build solved state, reverse-scramble (group-pours), filter with solver, optionally inject conflicts.
-// Returns an array of length at least numGlasses (padded to MAX_GLASSES).
+// Hovedgenerator
 function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
-    const { glasses: numGlasses, emptyGlasses } = config;
-    const nonEmpty = numGlasses - emptyGlasses;
-
     const rng = seed == null ? Math.random : makeSeededRng(seed);
+    let state = buildSolvedState(config, rng);
 
-    const shuffleWithRng = (arr) => {
-        for (let i = arr.length - 1; i > 0; i--) {
-            const j = Math.floor(rng() * (i + 1));
-            [arr[i], arr[j]] = [arr[j], arr[i]];
-        }
-        return arr;
-    };
+    // bland godt med enkelt-frukt trekk
+    scrambleStateSingleFruit(state, scrambleMoves, rng);
 
-    const buildSolvedState = () => {
-        const pool = shuffleWithRng([...FRUIT_POOL]).slice(0, nonEmpty);
-        const state = pool.map(f => Array.from({ length: GLASS_CAPACITY }, () => f));
-        for (let i = 0; i < emptyGlasses; i++) state.push([]);
-        while (state.length < numGlasses) state.push([]);
-        return state;
-    };
-
-    const isAllSolvedFull = (st) => isStateSolved(st, numGlasses);
-
-    // safety / performance caps
-    const maxRetries = 20;                   // færre forsøk for å unngå lang spinning
-    const maxScrambleCap = 400;             // begrense movesTarget så den ikke vokser ubegrenset
-    const baseDepth = numGlasses >= 10 ? 24 : (numGlasses >= 8 ? 20 : 14); // moderat BFS-dybde
-
-    // enkel heuristikk for å unngå kostbar BFS når tilstanden åpenbart er triviel
-    const cheapHeuristicScore = (st) => {
-        // poengsum = antall stabler som IKKE er komplette (høyere = mer blandet)
-        let s = 0;
-        for (let i = 0; i < numGlasses; i++) {
-            const stack = st[i] || [];
-            if (stack.length === 0) { s++; continue; }
-            const top = stack[0];
-            if (stack.length !== GLASS_CAPACITY) s++;
-            else {
-                for (let k = 1; k < stack.length; k++) {
-                    if (stack[k] !== top) { s++; break; }
-                }
-            }
-        }
-        return s;
-    };
-
-    // Tvinge et lite destruktivt grep for å garantere at tilstanden blir usolvert
-    const forceDestructiveMove = (st) => {
-        // finn hvilken som helst full stabel (kilde) og et mål som vil skape konflikt/usolve
-        const total = Math.min(st.length, numGlasses);
-        const sources = [];
-        for (let i = 0; i < total; i++) if (st[i] && st[i].length > 0) sources.push(i);
-        if (!sources.length) return st;
-
-        for (const from of shuffleWithRng(sources.slice())) {
-            const fruit = st[from][st[from].length - 1];
-            // foretrekker mål som er ikke-tomme og har en annen topp
-            const targets = [];
-            const empties = [];
-            const neutral = [];
-            for (let j = 0; j < total; j++) {
-                if (j === from) continue;
-                const t = st[j];
-                if (!t) continue;
-                if (t.length >= GLASS_CAPACITY) continue;
-                if (t.length === 0) empties.push(j);
-                else if (t[t.length - 1] !== fruit) targets.push(j);
-                else neutral.push(j);
-            }
-            const pool = targets.length ? targets : (empties.length ? empties : neutral);
-            if (pool.length) {
-                const to = pool[Math.floor(rng() * pool.length)];
-                // flytt en enkelt frukt
-                st[to].push(st[from].pop());
-                return st;
-            }
-        }
-        return st;
-    };
-
-    let finalState = null;
-
-    // vanskelighetsgrense (bruk forhåndsinnstilt hvis tilstede)
-    let minAccept;
-    if (typeof config._presetName === "string" && DIFFICULTY_PRESETS[config._presetName]) {
-        minAccept = DIFFICULTY_PRESETS[config._presetName].minSolveMoves || 6;
-    } else if (numGlasses >= 10) minAccept = 14;
-    else if (numGlasses >= 8) minAccept = 10;
-    else minAccept = 5;
-
-    console.info("[gen] start generateSolvableLevel", { numGlasses, emptyGlasses, seed, minAccept, baseDepth });
-
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-        const state = buildSolvedState();
-
-        // beregn movesTarget men hold den begrenset
-        const movesTarget = Math.min(Math.max(scrambleMoves, Math.floor(scrambleMoves * (1 + attempt * 0.2))), maxScrambleCap);
-        performScrambleOnce(state, movesTarget, rng);
-
-        // hvis fortsatt helt løst, tvinge et destruktivt trekk i stedet for å blindt prøve mange ganger
-        if (isAllSolvedFull(state)) {
-            forceDestructiveMove(state);
-        }
-
-        while (state.length < MAX_GLASSES) state.push([]);
-
-        // billig heuristikk: hopp over kostbar BFS når åpenbart trivielt
-        const h = cheapHeuristicScore(state);
-        if (h < Math.max(1, Math.floor(numGlasses / 3))) {
-            console.debug(`[gen] attempt ${attempt}: cheap-heuristic rejected (h=${h})`);
-            continue;
-        }
-
-        // kjør BFS-løser med moderat dybde
-        let minSolve = findMinSolutionMoves(state, numGlasses, baseDepth);
-        console.debug(`[gen] attempt ${attempt}: movesTarget=${movesTarget}, initial minSolve=${minSolve}, heuristic=${h}`);
-
-        // hvis for enkelt eller løseren ikke fant, prøv noen målrettede konfliktinjeksjoner (avgrenset)
-        if (minSolve === Infinity || minSolve < minAccept) {
-            for (let inj = 0; inj < 4; inj++) {
-                injectConflicts(state, numGlasses, rng, 1 + (inj % 2));
-                // rask heuristikk etter injeksjon
-                const h2 = cheapHeuristicScore(state);
-                if (h2 < 1) continue;
-                minSolve = findMinSolutionMoves(state, numGlasses, Math.max(12, Math.floor(baseDepth / 1.5)));
-                console.debug(`[gen] attempt ${attempt} inj ${inj}: minSolve=${minSolve}, heuristic=${h2}`);
-                if (minSolve !== Infinity && minSolve >= minAccept) break;
-            }
-        }
-
-        if (minSolve !== Infinity && minSolve >= minAccept && !isAllSolvedFull(state)) {
-            finalState = state;
-            console.info(`[gen] ACCEPTED on attempt ${attempt}`, { minSolve, movesTarget });
-            break;
-        }
-
-        console.debug(`[gen] attempt ${attempt} rejected`, { minSolve });
-    }
-
-    // fallback: rask, liten usolve for å unngå lang spinner (rask og deterministisk-ish)
-    if (!finalState) {
-        console.warn("[gen] no acceptable scramble found — using quick fallback unsolve");
-        const fb = buildSolvedState();
-        // utfør noen deterministiske enkelt-frukt bevegelser for å introdusere blanding
-        for (let i = 0; i < Math.max(2, Math.floor(scrambleMoves / 40)); i++) {
-            forceDestructiveMove(fb);
-        }
-        while (fb.length < MAX_GLASSES) fb.push([]);
-        finalState = fb;
-    }
-
-    return finalState;
-}
-
-// Fast generator: deep reverse-scramble + conflict injection, no BFS verification.
-// Use when you want "hard but fast" boards (trade correctness-for-difficulty/time).
-function generateSolvableLevelFast(config, scrambleMoves = 300, seed = null) {
-    const { glasses: numGlasses, emptyGlasses } = config;
-    const nonEmpty = numGlasses - emptyGlasses;
-    const rng = seed == null ? Math.random : makeSeededRng(seed);
-
-    const shuffleWithRng = (arr) => {
-        for (let i = arr.length - 1; i > 0; i--) {
-            const j = Math.floor(rng() * (i + 1));
-            [arr[i], arr[j]] = [arr[j], arr[i]];
-        }
-        return arr;
-    };
-
-    const buildSolvedState = () => {
-        const pool = shuffleWithRng([...FRUIT_POOL]).slice(0, nonEmpty);
-        const state = pool.map(f => Array.from({ length: GLASS_CAPACITY }, () => f));
-        for (let i = 0; i < emptyGlasses; i++) state.push([]);
-        while (state.length < numGlasses) state.push([]);
-        return state;
-    };
-
-    // Start solved, then aggressively reverse-scramble and inject conflicts.
-    const state = buildSolvedState();
-
-    // Try a few strong scramble passes with increasing depth
-    const passes = 3;
-    for (let p = 0; p < passes; p++) {
-        const factor = 1 + p * 0.6;
-        performScrambleOnce(state, Math.min(Math.floor(scrambleMoves * factor), 1200), rng);
-        // inject a couple of targeted conflicts each pass
-        injectConflicts(state, numGlasses, rng, 1 + p);
-    }
-
-    // final lightweight shuffle to mix leftover stacks
-    for (let i = 0; i < Math.min(6, Math.max(1, Math.floor(scrambleMoves / 80))); i++) {
-        performScrambleOnce(state, Math.min(20 + i * 10, 120), rng);
-    }
-
-    while (state.length < MAX_GLASSES) state.push([]);
     return state;
 }
 
-// ---- INTERACTION ----
+// Daily-variant: bruker dato til seed
+function generateDailyLevel(config, date = new Date(), scrambleMoves = 120) {
+    const seed = dateSeedFromDate(date);
+    levelSeed = seed;
+    return generateSolvableLevel(config, scrambleMoves, seed);
+}
 
-function handleGlassClick(index = 0) {
+// ---- INTERAKSJON ----
+
+function handleGlassClick(index) {
     if (index >= activeLevel.glasses) return;
 
     const stack = glasses[index];
 
-    // pick up from this glass
+    // Velge "fra"-glass
     if (selectedGlassIndex === null) {
         if (stack.length === 0) return;
 
@@ -726,7 +420,7 @@ function handleGlassClick(index = 0) {
         return;
     }
 
-    // cancel if same glass
+    // Klikk samme glass = avbryt
     if (selectedGlassIndex === index) {
         selectedGlassIndex = null;
         statusEl.textContent = "";
@@ -746,20 +440,17 @@ function handleGlassClick(index = 0) {
         return;
     }
 
-    // Determine the fruit type on top of the source
     const topFruit = fromStack[fromStack.length - 1];
 
-    // Count consecutive identical top items
+    // Teller hvor mange identiske på toppen av "from"
     let sameCount = 0;
     for (let i = fromStack.length - 1; i >= 0; i--) {
         if (fromStack[i] === topFruit) sameCount++;
         else break;
     }
 
-    // Available space in target
     const available = GLASS_CAPACITY - toStack.length;
 
-    // Rules
     if (available <= 0) {
         statusEl.textContent = "That glass is full.";
         selectedGlassIndex = null;
@@ -774,16 +465,12 @@ function handleGlassClick(index = 0) {
         return;
     }
 
-    // Move up to min(sameCount, available)
+    // Flytt gruppe (spillregelen)
     const previousTop = fromStack.length - 1;
     const toMove = Math.min(sameCount, available);
     const movedFruits = [];
-    for (let i = 0; i < toMove; i++) {
-        movedFruits.push(fromStack.pop());
-    }
-    for (let i = movedFruits.length - 1; i >= 0; i--) {
-        toStack.push(movedFruits[i]);
-    }
+    for (let i = 0; i < toMove; i++) movedFruits.push(fromStack.pop());
+    for (let i = movedFruits.length - 1; i >= 0; i--) toStack.push(movedFruits[i]);
 
     const removedCount = toMove;
 
@@ -792,11 +479,10 @@ function handleGlassClick(index = 0) {
     statusEl.textContent = "";
     selectedGlassIndex = null;
 
-    // Reveal logic for covers on the source jar:
+    // Reveal-logikk for dekke på "from"
     if (removedCount > 0 && coveredPositions[from]) {
         const cover = coveredPositions[from];
 
-        // Handle fullCover: decrement required reveals by removedCount
         if (cover.fullCover && cover.fullCover > 0) {
             cover.fullCover -= removedCount;
             if (cover.fullCover <= 0) {
@@ -806,10 +492,11 @@ function handleGlassClick(index = 0) {
                 coveredPositions[from] = cover;
             }
         } else if (Array.isArray(cover.positions) && cover.positions.length > 0) {
-            // Partial leaf reveal: only remove covered indices that became visible during this move.
             const newTop = glasses[from].length - 1;
             const remaining = cover.positions || [];
-            const updated = remaining.filter(p => !(p >= newTop && p <= previousTop)).sort((a, b) => a - b);
+            const updated = remaining
+                .filter(p => !(p >= newTop && p <= previousTop))
+                .sort((a, b) => a - b);
 
             if (updated.length === 0) {
                 delete coveredPositions[from];
@@ -832,19 +519,63 @@ boardEl.addEventListener("click", (e) => {
     handleGlassClick(index);
 });
 
-// reposition leaves on resize
+// Re-posisjonér blader ved resize
 window.addEventListener("resize", () => schedulePositionLeaves());
 
 // ---- START / RESET ----
 
-// Replace startNewGame to enable fast generator automatically for hard difficulty unless explicitly overridden
+function setupCovers(preset) {
+    initialCoveredPositions = {};
+    coveredPositions = {};
+
+    const candidateIndices = [];
+    for (let i = 0; i < activeLevel.glasses; i++) {
+        if (glasses[i] && glasses[i].length > 1 && !isGlassComplete(glasses[i])) {
+            candidateIndices.push(i);
+        }
+    }
+
+    shuffleInPlace(candidateIndices, coverRng);
+
+    const toCover = Math.min(activeLevel.coveredGlasses || 0, candidateIndices.length);
+
+    for (let k = 0; k < toCover; k++) {
+        const idx = candidateIndices[k];
+        const stackLen = glasses[idx].length;
+        if (stackLen <= 1) continue;
+
+        const makeFullCover = coverRng() < (preset.fullCoverProb || 0.2);
+
+        if (makeFullCover) {
+            const required = coverRandInt(1, Math.min(stackLen, GLASS_CAPACITY));
+            coveredPositions[idx] = { fullCover: required };
+            initialCoveredPositions[idx] = [];
+        } else {
+            const maxDepth = Math.max(1, stackLen - 1);
+            const depth = coverRandInt(1, maxDepth);
+            const positions = [];
+
+            // Dekker de nederste "depth" fruktene (0 = bunn)
+            for (let j = 0; j < depth; j++) {
+                positions.push(j);
+            }
+
+            initialCoveredPositions[idx] = positions.slice();
+            coveredPositions[idx] = { positions: positions.slice() };
+        }
+    }
+}
+
+// Start nytt spill
+// options: { difficulty: "easy"|"medium"|"hard", mode: "scramble"|"daily", date?: Date }
 function startNewGame(options = {}) {
-    moves =0;
+    moves = 0;
     movesEl.textContent = "0";
     statusEl.textContent = "";
 
-    const difficulty = options.difficulty || "easy";
-    const preset = DIFFICULTY_PRESETS[difficulty] || DIFFICULTY_PRESETS.easy;
+    const difficulty = options.difficulty || "medium";
+    const preset = DIFFICULTY_PRESETS[difficulty] || DIFFICULTY_PRESETS.medium;
+
     activeLevel = {
         glasses: preset.glasses,
         emptyGlasses: preset.emptyGlasses,
@@ -853,90 +584,33 @@ function startNewGame(options = {}) {
     };
 
     const mode = options.mode || "scramble";
-    // If options.fastHard is explicitly provided, use it; otherwise enable fast generator for hard difficulty
-    const fastHard = (typeof options.fastHard !== 'undefined') ? !!options.fastHard : (difficulty === 'hard');
 
-    // determine levelSeed first so we can set deterministic cover RNG
     if (mode === "daily" && options.date) {
         levelSeed = dateSeedFromDate(options.date);
         setCoverRng(levelSeed);
-        if (fastHard) glasses = generateSolvableLevelFast(activeLevel, preset.scrambleMoves, levelSeed);
-        else glasses = generateSolvableLevel(activeLevel, preset.scrambleMoves, levelSeed);
-    } else if (mode === "scramble") {
-        levelSeed = null;
-        setCoverRng(null);
-        if (fastHard) glasses = generateSolvableLevelFast(activeLevel, preset.scrambleMoves);
-        else glasses = generateSolvableLevel(activeLevel, preset.scrambleMoves);
+        glasses = generateDailyLevel(activeLevel, options.date, preset.scrambleMoves);
     } else {
         levelSeed = null;
         setCoverRng(null);
-        glasses = generateLevel(activeLevel);
+        glasses = generateSolvableLevel(activeLevel, preset.scrambleMoves);
     }
 
-    // reset covers using preset probability for fullCover (use coverRng for determinism when seeded)
-    initialCoveredPositions = {};
-    coveredPositions = {};
-    const candidateIndices = [];
-    for (let i =0; i < activeLevel.glasses; i++) {
-        if (glasses[i] && glasses[i].length >0) candidateIndices.push(i);
-    }
-    shuffle(candidateIndices);
-
-    const toCover = Math.min(activeLevel.coveredGlasses ||0, candidateIndices.length);
-    for (let k =0; k < toCover; k++) {
-        const idx = candidateIndices[k];
-        const stackLen = glasses[idx].length;
-
-        // Skip covering already-complete jars — don't hide jars that are already fully sorted.
-        if (isGlassComplete(glasses[idx])) continue;
-        if (stackLen <=1) continue;
-
-        // use coverRng() / coverRandInt(...) so daily/seeded boards are deterministic
-        const makeFullCover = (coverRng() < (preset.fullCoverProb ||0.2));
-
-        if (makeFullCover) {
-            // require at most the number of fruits present; avoid nonsensical fullCover values
-            const required = coverRandInt(1, Math.max(1, Math.min(stackLen, GLASS_CAPACITY)));
-            coveredPositions[idx] = { fullCover: required };
-            initialCoveredPositions[idx] = [];
-        } else {
-            const maxDepth = Math.min(stackLen -1, GLASS_CAPACITY -1);
-            const depth = coverRandInt(1, Math.max(1, maxDepth));
-            const topIndex = stackLen -1;
-            const positions = [];
-            for (let j =1; j <= depth; j++) {
-                const absIndex = topIndex - j; // absolute index-from-bottom
-                // allow covering the bottom slot (absIndex >=0)
-                if (absIndex >=0) positions.push(absIndex);
-            }
-            if (positions.length >0) {
-                initialCoveredPositions[idx] = positions.slice();
-                coveredPositions[idx] = { positions: positions.slice() };
-            }
-        }
-    }
+    setupCovers(preset);
 
     selectedGlassIndex = null;
     startTime = Date.now();
     drawBoard();
 }
 
-// Wire reset and initial start (moved below STATE so lexical vars are initialized)
-const difficultySelect = document.getElementById("fs-difficulty");
-const fastHardCheckbox = document.getElementById("fs-fast-hard");
-
+// Knytt reset-knapp til UI-valg
 resetBtn.addEventListener("click", () => {
- const diff = difficultySelect ? difficultySelect.value : "medium";
- const fast = fastHardCheckbox ? fastHardCheckbox.checked : false;
- // Enable fastHard when user checked the box OR when difficulty selected is hard
- startNewGame({ difficulty: diff, mode: "scramble", fastHard: (fast || diff === 'hard') });
+    const diff = difficultySelect ? difficultySelect.value : "medium";
+    startNewGame({ difficulty: diff, mode: "scramble" });
 });
 
-// initial start uses UI choices if present
+// initial start – bruk UI-valg hvis finnes
 const initialDiff = difficultySelect ? difficultySelect.value : "medium";
-const initialFast = fastHardCheckbox ? fastHardCheckbox.checked : false;
-// If UI difficulty is hard and checkbox not checked, still enable fastHard by default for hard
-startNewGame({ difficulty: initialDiff, mode: "scramble", fastHard: (initialFast || initialDiff === 'hard') });
+startNewGame({ difficulty: initialDiff, mode: "scramble" });
 
 // ---- WIN CHECK & SCORING ----
 
@@ -955,8 +629,6 @@ function checkWin() {
         const score = computeScore(moves, elapsed, diff.multiplier);
         lastScore = score;
 
-        // Clear any remaining covers so the final board doesn't show stray question-marks.
-        // This fixes the case where jars become "complete" by receiving pours but previously had covers.
         coveredPositions = {};
         initialCoveredPositions = {};
         drawBoard();
@@ -971,7 +643,8 @@ function checkWin() {
             seed: levelSeed || null,
             date: new Date().toISOString().slice(0, 10)
         };
-        submitGlobalScore(payload);
-        if (levelSeed) submitDailyScore(payload);
+        // Hooks for backend:
+        console.log("submitGlobalScore", payload);
+        if (levelSeed) console.log("submitDailyScore", payload);
     }
 }
