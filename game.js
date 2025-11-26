@@ -37,19 +37,7 @@ const boardEl = document.getElementById("fs-board");
 const movesEl = document.getElementById("fs-moves");
 const statusEl = document.getElementById("fs-status");
 const resetBtn = document.getElementById("fs-reset");
-const difficultySelect = document.getElementById("fs-difficulty");
-const fastHardCheckbox = document.getElementById("fs-fast-hard");
-
-resetBtn.addEventListener("click", () => {
-    const diff = difficultySelect ? difficultySelect.value : "medium";
-    const fast = fastHardCheckbox ? fastHardCheckbox.checked : false;
-    startNewGame({ difficulty: diff, mode: "scramble", fastHard: fast });
-});
-
-// initial start uses UI choices if present
-const initialDiff = difficultySelect ? difficultySelect.value : "medium";
-const initialFast = fastHardCheckbox ? fastHardCheckbox.checked : false;
-startNewGame({ difficulty: initialDiff, mode: "scramble", fastHard: initialFast });
+    
 
 // ---- STATE ----
 
@@ -547,13 +535,13 @@ function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
     const isAllSolvedFull = (st) => isStateSolved(st, numGlasses);
 
     // safety / performance caps
-    const maxRetries = 20;                   // fewer attempts to avoid long spinning
-    const maxScrambleCap = 400;             // cap movesTarget so it doesn't grow unbounded
-    const baseDepth = numGlasses >= 10 ? 24 : (numGlasses >= 8 ? 20 : 14); // moderate BFS depth
+    const maxRetries = 20;                   // færre forsøk for å unngå lang spinning
+    const maxScrambleCap = 400;             // begrense movesTarget så den ikke vokser ubegrenset
+    const baseDepth = numGlasses >= 10 ? 24 : (numGlasses >= 8 ? 20 : 14); // moderat BFS-dybde
 
-    // simple heuristic to avoid expensive BFS when state clearly trivial
+    // enkel heuristikk for å unngå kostbar BFS når tilstanden åpenbart er triviel
     const cheapHeuristicScore = (st) => {
-        // score = number of stacks that are NOT complete (higher = more mixed)
+        // poengsum = antall stabler som IKKE er komplette (høyere = mer blandet)
         let s = 0;
         for (let i = 0; i < numGlasses; i++) {
             const stack = st[i] || [];
@@ -569,9 +557,9 @@ function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
         return s;
     };
 
-    // Force a small destructive move to guarantee the state becomes unsolved
+    // Tvinge et lite destruktivt grep for å garantere at tilstanden blir usolvert
     const forceDestructiveMove = (st) => {
-        // find any full stack (source) and a target that will create conflict/unsolve
+        // finn hvilken som helst full stabel (kilde) og et mål som vil skape konflikt/usolve
         const total = Math.min(st.length, numGlasses);
         const sources = [];
         for (let i = 0; i < total; i++) if (st[i] && st[i].length > 0) sources.push(i);
@@ -579,9 +567,10 @@ function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
 
         for (const from of shuffleWithRng(sources.slice())) {
             const fruit = st[from][st[from].length - 1];
-            // prefer targets that are non-empty and have a different top
+            // foretrekker mål som er ikke-tomme og har en annen topp
             const targets = [];
             const empties = [];
+            const neutral = [];
             for (let j = 0; j < total; j++) {
                 if (j === from) continue;
                 const t = st[j];
@@ -591,10 +580,10 @@ function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
                 else if (t[t.length - 1] !== fruit) targets.push(j);
                 else neutral.push(j);
             }
-            const pool = targets.length ? targets : empties;
+            const pool = targets.length ? targets : (empties.length ? empties : neutral);
             if (pool.length) {
                 const to = pool[Math.floor(rng() * pool.length)];
-                // move a single fruit
+                // flytt en enkelt frukt
                 st[to].push(st[from].pop());
                 return st;
             }
@@ -604,7 +593,7 @@ function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
 
     let finalState = null;
 
-    // difficulty threshold (use preset if present)
+    // vanskelighetsgrense (bruk forhåndsinnstilt hvis tilstede)
     let minAccept;
     if (typeof config._presetName === "string" && DIFFICULTY_PRESETS[config._presetName]) {
         minAccept = DIFFICULTY_PRESETS[config._presetName].minSolveMoves || 6;
@@ -617,33 +606,33 @@ function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
     for (let attempt = 0; attempt < maxRetries; attempt++) {
         const state = buildSolvedState();
 
-        // compute movesTarget but keep it capped
+        // beregn movesTarget men hold den begrenset
         const movesTarget = Math.min(Math.max(scrambleMoves, Math.floor(scrambleMoves * (1 + attempt * 0.2))), maxScrambleCap);
         performScrambleOnce(state, movesTarget, rng);
 
-        // if still fully solved, force a destructive move instead of blindly retrying many times
+        // hvis fortsatt helt løst, tvinge et destruktivt trekk i stedet for å blindt prøve mange ganger
         if (isAllSolvedFull(state)) {
             forceDestructiveMove(state);
         }
 
         while (state.length < MAX_GLASSES) state.push([]);
 
-        // cheap heuristic: skip expensive BFS when clearly trivial
+        // billig heuristikk: hopp over kostbar BFS når åpenbart trivielt
         const h = cheapHeuristicScore(state);
         if (h < Math.max(1, Math.floor(numGlasses / 3))) {
             console.debug(`[gen] attempt ${attempt}: cheap-heuristic rejected (h=${h})`);
             continue;
         }
 
-        // run BFS solver with moderate depth
+        // kjør BFS-løser med moderat dybde
         let minSolve = findMinSolutionMoves(state, numGlasses, baseDepth);
         console.debug(`[gen] attempt ${attempt}: movesTarget=${movesTarget}, initial minSolve=${minSolve}, heuristic=${h}`);
 
-        // if too easy or solver didn't find, try a few targeted conflict injections (bounded)
+        // hvis for enkelt eller løseren ikke fant, prøv noen målrettede konfliktinjeksjoner (avgrenset)
         if (minSolve === Infinity || minSolve < minAccept) {
             for (let inj = 0; inj < 4; inj++) {
                 injectConflicts(state, numGlasses, rng, 1 + (inj % 2));
-                // quick heuristic after injection
+                // rask heuristikk etter injeksjon
                 const h2 = cheapHeuristicScore(state);
                 if (h2 < 1) continue;
                 minSolve = findMinSolutionMoves(state, numGlasses, Math.max(12, Math.floor(baseDepth / 1.5)));
@@ -661,11 +650,11 @@ function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
         console.debug(`[gen] attempt ${attempt} rejected`, { minSolve });
     }
 
-    // fallback: quick, small unsolve to avoid long spinner (fast and deterministic-ish)
+    // fallback: rask, liten usolve for å unngå lang spinner (rask og deterministisk-ish)
     if (!finalState) {
         console.warn("[gen] no acceptable scramble found — using quick fallback unsolve");
         const fb = buildSolvedState();
-        // perform a few deterministic single-fruit moves to introduce mixing
+        // utfør noen deterministiske enkelt-frukt bevegelser for å introdusere blanding
         for (let i = 0; i < Math.max(2, Math.floor(scrambleMoves / 40)); i++) {
             forceDestructiveMove(fb);
         }
@@ -932,11 +921,20 @@ function startNewGame(options = {}) {
     drawBoard();
 }
 
-// Wire reset button and initial start
-resetBtn.addEventListener("click", () => startNewGame({ difficulty: "medium", mode: "scramble" }));
+// Wire reset and initial start (moved below STATE so lexical vars are initialized)
+const difficultySelect = document.getElementById("fs-difficulty");
+const fastHardCheckbox = document.getElementById("fs-fast-hard");
 
-// Init default
-startNewGame({ difficulty: "medium", mode: "scramble" });
+resetBtn.addEventListener("click", () => {
+    const diff = difficultySelect ? difficultySelect.value : "medium";
+    const fast = fastHardCheckbox ? fastHardCheckbox.checked : false;
+    startNewGame({ difficulty: diff, mode: "scramble", fastHard: fast });
+});
+
+// initial start uses UI choices if present
+const initialDiff = difficultySelect ? difficultySelect.value : "medium";
+const initialFast = fastHardCheckbox ? fastHardCheckbox.checked : false;
+startNewGame({ difficulty: initialDiff, mode: "scramble", fastHard: initialFast });
 
 // ---- WIN CHECK & SCORING ----
 
