@@ -5,30 +5,27 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Fruit Sort</title>
 
-    <!-- Stylesheet -->
     <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 
     <div class="fs-wrapper">
         <h1 class="fs-title">🍓 Fruit Sort</h1>
-        <p class="fs-sub">Arcade Prototype – 4 Scramble Modes</p>
+        <p class="fs-sub">Prototype – Up to 18 glasses</p>
 
         <!-- TOP BAR -->
         <div class="fs-topbar">
             <div>Moves: <span id="fs-moves">0</span></div>
             <div id="fs-status"></div>
 
-            <!-- Reset -->
             <button id="fs-reset">New board</button>
         </div>
 
+        <!-- Scramble-knappene (Casual / Challenging / Brutal / Insane) blir laget i JS -->
         <!-- GAME BOARD -->
         <div id="fs-board" class="fs-board"></div>
     </div>
 
-    <!-- GAME SCRIPT -->
     <script src="game.js"></script>
-
 </body>
 </html>

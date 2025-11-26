@@ -1,19 +1,15 @@
 // =======================
 // Fruit Sort – game.js
-// Arcade-generator med 4 modes (Casual–Insane)
-// - Antall glass styres av scramble-mode
-// - Alltid 4 av hver frukttype
-// - Maks: 18 glass, 16 frukttyper
-// - Blad-dekke på noen glass for ekstra krydder
+// Arcade-modus med 4 av hver frukt, 1–3 tomme glass (tilfeldig)
+// og Casual/Challenging/Brutal/Insane som bestemmer brettstørrelse.
 // =======================
 
 // ---- KONSTANTER ----
 
-const MAX_GLASSES = 18;       // 6 i bredden * 3 rader (CSS styrer layouten)
+const MAX_GLASSES = 18;       // 6 i bredden * 3 rader i layout
 const GLASS_CAPACITY = 4;
 
-// Alle fruktfilene du har i /img
-// NB: Insane bruker alle 16 typene (18 glass – 2 tomme = 16 fulle)
+// Alle fruktfilene du har i /img (navn uten .png)
 const FRUIT_POOL = [
     "fruit_apple",
     "fruit_banana",
@@ -32,39 +28,39 @@ const FRUIT_POOL = [
     "fruit_watermelon"
 ];
 
-// Scramble-moduser: bestemmer ALT for Arcade
-const SCRAMBLE_MODES = {
+// Arcade-moduser – disse styrer hvor mange glass og hvor mye "blad-dekke" vi bruker
+const MODE_CONFIG = {
     casual: {
+        key: "casual",
         label: "Casual",
-        glasses: 8,
-        emptyGlasses: 2,
-        coveredGlasses: 1,
-        scrambleFactor: 0.5,     // hvor mye vi blander
-        scoreMult: 1.0
+        glasses: 8,            // maks synlige glass
+        coverRatio: 0.10,      // andel glass som får blad
+        fullCoverProb: 0.18,   // sannsynlighet for full dekke ("?2" osv)
+        scoreMultiplier: 1.0
     },
     challenging: {
+        key: "challenging",
         label: "Challenging",
         glasses: 12,
-        emptyGlasses: 2,
-        coveredGlasses: 2,
-        scrambleFactor: 0.8,
-        scoreMult: 1.2
+        coverRatio: 0.16,
+        fullCoverProb: 0.25,
+        scoreMultiplier: 1.3
     },
     brutal: {
+        key: "brutal",
         label: "Brutal",
         glasses: 15,
-        emptyGlasses: 2,
-        coveredGlasses: 3,
-        scrambleFactor: 1.1,
-        scoreMult: 1.5
+        coverRatio: 0.20,
+        fullCoverProb: 0.30,
+        scoreMultiplier: 1.6
     },
     insane: {
+        key: "insane",
         label: "Insane",
         glasses: 18,
-        emptyGlasses: 2,
-        coveredGlasses: 4,
-        scrambleFactor: 1.4,
-        scoreMult: 1.8
+        coverRatio: 0.24,
+        fullCoverProb: 0.35,
+        scoreMultiplier: 2.0
     }
 };
 
@@ -75,31 +71,25 @@ const movesEl = document.getElementById("fs-moves");
 const statusEl = document.getElementById("fs-status");
 const resetBtn = document.getElementById("fs-reset");
 
-// Eksisterende HTML (vi skjuler hele blokken – dropdown + fast-hard)
-// Så du slipper å endre index.html
-const controlsWrap = document.querySelector(".fs-controls");
-if (controlsWrap) {
-    controlsWrap.style.display = "none";
-}
-
 // ---- STATE ----
 
-// Hvilken scramble-mode som brukes (styrer alt: glass, frukt, dekke, blanding)
-let generatorMode = "challenging";
+let currentModeKey = "casual";   // "casual" | "challenging" | "brutal" | "insane"
 
-let glasses = [];          // Array av MAX_GLASSES glass, hvert glass = array med frukt (bunn -> topp)
+let glasses = [];                // Array av MAX_GLASSES glass, hvert glass = array med frukt (bunn -> topp)
 let activeLevel = {
-    glasses: SCRAMBLE_MODES[generatorMode].glasses,
-    emptyGlasses: SCRAMBLE_MODES[generatorMode].emptyGlasses,
-    coveredGlasses: SCRAMBLE_MODES[generatorMode].coveredGlasses
+    glasses: 0,        // hvor mange glass som er i bruk (1..18)
+    colorGlasses: 0,   // hvor mange av dem som faktisk har frukt (resten er tomme fra start)
+    emptyGlasses: 0,   // hvor mange som skal være tomme ved start
+    modeKey: "casual",
+    scoreMultiplier: 1
 };
 
 let selectedGlassIndex = null;
 let moves = 0;
 
+// "blad-dekke":
 // initialCoveredPositions: index -> array av absolute indices (index-from-bottom) som var dekket ved start
 let initialCoveredPositions = {};
-
 // coveredPositions: mutable remaining covered data for hvert glass.
 // Enten { positions: [absIndex,...] } (delvis dekke) eller { fullCover: N } (fullt dekket)
 let coveredPositions = {};
@@ -107,6 +97,7 @@ let coveredPositions = {};
 // Score / tid
 let startTime = null;
 let lastScore = 0;
+let levelSeed = null; // ikke brukt til daily her, men lar det være til senere
 
 // ---- HELPERFUNKSJONER ----
 
@@ -128,18 +119,7 @@ function isGlassComplete(stack) {
     return stack.every(f => f === stack[0]);
 }
 
-// Simple seeded RNG (Mulberry32) – kan brukes senere til daily
-function makeSeededRng(seed) {
-    let t = seed >>> 0;
-    return function () {
-        t += 0x6D2B79F5;
-        let r = Math.imul(t ^ (t >>> 15), 1 | t);
-        r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
-        return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
-    };
-}
-
-// compute a simple score: høyere for færre trekk og kortere tid.
+// enkel score: bedre score for færre trekk + kortere tid
 function computeScore(movesCount, elapsedMs, difficultyMultiplier = 1) {
     const elapsedSec = Math.max(1, Math.round(elapsedMs / 1000));
     const base = 1000 * difficultyMultiplier;
@@ -147,14 +127,23 @@ function computeScore(movesCount, elapsedMs, difficultyMultiplier = 1) {
     return score;
 }
 
-// ---- COVER RNG ----
+// ---- COVER RNG (for blad/cover) ----
 
 let coverRng = Math.random;
-
 function setCoverRng(seed) {
-    coverRng = (seed == null) ? Math.random : makeSeededRng(seed);
+    if (seed == null) {
+        coverRng = Math.random;
+    } else {
+        // enkel seedet RNG (Mulberry32)
+        let t = seed >>> 0;
+        coverRng = function () {
+            t += 0x6D2B79F5;
+            let r = Math.imul(t ^ (t >>> 15), 1 | t);
+            r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
+            return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+        };
+    }
 }
-
 function coverRandInt(min, max) {
     return randInt(min, max, coverRng);
 }
@@ -163,8 +152,8 @@ function coverRandInt(min, max) {
 
 // Compute bottom percentage for a fruit at indexFromBottom (0 = bunn)
 function computeLeafBottomPercent(indexFromBottom, stackLen = GLASS_CAPACITY) {
-    const base = 10; // bottom anchor i CSS
-    const height = 58; // prosent av høyden hvor fruktene ligger
+    const base = 10;     // bottom anchor i CSS
+    const height = 58;   // prosent av høyden hvor fruktene ligger
     const slots = Math.max(1, stackLen - 1);
     const step = height / slots;
     return base + indexFromBottom * step;
@@ -186,8 +175,11 @@ function positionLeaves() {
         const domIndex = (stack.length - 1) - coveredIndex; // DOM[0]=topp
 
         let fruitEl = null;
-        if (domIndex >= 0 && domIndex < fruitImgs.length) fruitEl = fruitImgs[domIndex];
-        else if (fruitImgs.length > 0) fruitEl = fruitImgs[fruitImgs.length - 1];
+        if (domIndex >= 0 && domIndex < fruitImgs.length) {
+            fruitEl = fruitImgs[domIndex];
+        } else if (fruitImgs.length > 0) {
+            fruitEl = fruitImgs[fruitImgs.length - 1];
+        }
 
         if (fruitEl && fruitEl.clientHeight > 0) {
             const leftPx = fruitEl.offsetLeft + fruitEl.offsetWidth / 2;
@@ -285,7 +277,7 @@ function drawBoard() {
         const cover = coveredPositions[i];
 
         if (cover && cover.fullCover && cover.fullCover > 0 && i < activeLevel.glasses) {
-            // full overlay med ? + antall
+            // full overlay
             const overlay = document.createElement("div");
             overlay.className = "fs-full-cover";
             overlay.setAttribute("aria-hidden", "true");
@@ -355,102 +347,81 @@ function drawBoard() {
     schedulePositionLeaves();
 }
 
-// ---- NIVÅGENERERING ----
+// ---- NIVÅGENERERING – REN TILFELDIG DEAL, 4 AV HVER FRUKT ----
 
-// Bygg helt løst nivå for en gitt scramble-mode:
-// - Hver fulle flaske har 4 like frukter
-// - Ingen frukttype brukes mer enn 4 ganger
-function buildSolvedStateForMode(modeCfg, rng) {
-    const numGlasses = modeCfg.glasses;
-    const emptyGlasses = modeCfg.emptyGlasses;
-    const filledGlasses = numGlasses - emptyGlasses;
-
-    // ANTALL frukttyper = antall fulle glass
-    const neededTypes = Math.min(filledGlasses, FRUIT_POOL.length);
-
-    // Velg og bland frukttypene
-    const fruits = shuffleInPlace([...FRUIT_POOL], rng).slice(0, neededTypes);
-
-    const state = [];
-
-    // Fylte glass
-    for (let i = 0; i < filledGlasses; i++) {
-        const fruitName = fruits[i % neededTypes]; // burde være 1:1 men sikrer oss
-        state.push(Array.from({ length: GLASS_CAPACITY }, () => fruitName));
+// Teller hvor mange glass som allerede er "komplette"
+function countCompleteGlasses(state, colorGlasses) {
+    let c = 0;
+    for (let i = 0; i < colorGlasses; i++) {
+        if (isGlassComplete(state[i])) c++;
     }
-
-    // Tomme glass
-    for (let i = 0; i < emptyGlasses; i++) {
-        state.push([]);
-    }
-
-    // Fyll opp til numGlasses (normalt unødvendig, men greit for fremtid)
-    while (state.length < numGlasses) state.push([]);
-
-    // Og til MAX_GLASSES for layout
-    while (state.length < MAX_GLASSES) state.push([]);
-
-    return state;
+    return c;
 }
 
-// Reverse-scramble med ENKELT-frukt flytt – alltid løsbart
-function scrambleStateSingleFruit(state, movesTarget, rng, usedCount) {
-    const maxAttempts = movesTarget * 10;
+// Lager nytt brett for valgt modus.
+// 1–3 tomme glass (tilfeldig – men tilpasset antall frukttyper)
+// Alltid 4 av hver type som er i spill.
+function createRandomLevel(modeKey) {
+    const mode = MODE_CONFIG[modeKey] || MODE_CONFIG.casual;
+    const totalGlasses = mode.glasses;
 
-    let movesDone = 0;
+    // hvor mange tomme glass ønsker vi? 1–3, men minst så mye at vi ikke trenger mer enn FRUIT_POOL-typer
+    const minEmpty = Math.max(1, totalGlasses - FRUIT_POOL.length);
+    const maxEmpty = Math.min(3, totalGlasses - 2); // minst 2 glass med frukt
+    const emptyGlasses = (() => {
+        if (maxEmpty < minEmpty) return minEmpty;
+        return randInt(minEmpty, maxEmpty);
+    })();
+
+    const colorGlasses = totalGlasses - emptyGlasses;
+
+    // vi trenger én frukttype per "målglass" i løst tilstand
+    const fruitTypesCount = Math.min(colorGlasses, FRUIT_POOL.length);
+    const chosenTypes = shuffleInPlace([...FRUIT_POOL]).slice(0, fruitTypesCount);
+
+    // lag 4 av hver valgt frukt
+    const fruits = [];
+    chosenTypes.forEach(type => {
+        for (let i = 0; i < GLASS_CAPACITY; i++) fruits.push(type);
+    });
+
+    let bestState = null;
+
+    // Vi prøver noen ganger til vi får et brett som ikke er "nesten ferdig"
     let attempts = 0;
-
-    while (movesDone < movesTarget && attempts < maxAttempts) {
+    while (attempts < 30) {
         attempts++;
 
-        const fromCandidates = [];
-        for (let i = 0; i < usedCount; i++) {
-            if (state[i].length > 0) fromCandidates.push(i);
-        }
-        if (!fromCandidates.length) break;
+        const state = Array.from({ length: totalGlasses }, () => []);
 
-        const from = fromCandidates[randInt(0, fromCandidates.length - 1, rng)];
-        const fromStack = state[from];
-        const fruit = fromStack[fromStack.length - 1];
-
-        const toCandidates = [];
-        for (let j = 0; j < usedCount; j++) {
-            if (j === from) continue;
-            const tstack = state[j];
-            if (tstack.length >= GLASS_CAPACITY) continue;
-            if (tstack.length === 0 || tstack[tstack.length - 1] === fruit) {
-                toCandidates.push(j);
+        // Del ut frukter tilfeldig på de første colorGlasses glassene
+        const fruitBag = shuffleInPlace([...fruits]);
+        let idx = 0;
+        for (let g = 0; g < colorGlasses; g++) {
+            for (let s = 0; s < GLASS_CAPACITY; s++) {
+                state[g].push(fruitBag[idx++]);
             }
         }
-        if (!toCandidates.length) continue;
+        // Siste emptyGlasses glass (fra colorGlasses til totalGlasses-1) blir helt tomme.
 
-        const to = toCandidates[randInt(0, toCandidates.length - 1, rng)];
+        const complete = countCompleteGlasses(state, colorGlasses);
+        const maxCompleteAllowed = Math.floor(colorGlasses * 0.5); // maks 50% ferdig sortert
 
-        // flytt én frukt
-        state[to].push(fromStack.pop());
-        movesDone++;
+        bestState = state;
+
+        if (complete <= maxCompleteAllowed) {
+            // ser greit ut – ikke for mye ferdig sortert
+            break;
+        }
     }
 
-    return state;
-}
-
-// Generer løsbart brett for aktiv generatorMode
-function generateSolvableForCurrentMode(seed = null) {
-    const modeCfg = SCRAMBLE_MODES[generatorMode];
-    const rng = seed == null ? Math.random : makeSeededRng(seed);
-
-    let state = buildSolvedStateForMode(modeCfg, rng);
-
-    const filledGlasses = modeCfg.glasses - modeCfg.emptyGlasses;
-    const totalFruits = filledGlasses * GLASS_CAPACITY;
-
-    // Litt heuristikk for hvor mye vi skal blande:
-    const baseMoves = totalFruits * 1.2; // start rundt 1.2x antall frukter
-    const factor = modeCfg.scrambleFactor;
-    const movesTarget = Math.max(20, Math.round(baseMoves * factor));
-
-    scrambleStateSingleFruit(state, movesTarget, rng, modeCfg.glasses);
-    return state;
+    return {
+        state: bestState,
+        totalGlasses,
+        colorGlasses,
+        emptyGlasses,
+        fruitTypesCount
+    };
 }
 
 // ---- INTERAKSJON ----
@@ -572,14 +543,16 @@ boardEl.addEventListener("click", (e) => {
 // Re-posisjonér blader ved resize
 window.addEventListener("resize", () => schedulePositionLeaves());
 
-// ---- START / RESET + DEKKE ----
+// ---- START / RESET ----
 
-function setupCovers(modeCfg) {
+function setupCoversForMode(mode) {
     initialCoveredPositions = {};
     coveredPositions = {};
 
+    const modeCfg = mode || MODE_CONFIG[currentModeKey] || MODE_CONFIG.casual;
+
     const candidateIndices = [];
-    for (let i = 0; i < activeLevel.glasses; i++) {
+    for (let i = 0; i < activeLevel.colorGlasses; i++) {
         if (glasses[i] && glasses[i].length > 1 && !isGlassComplete(glasses[i])) {
             candidateIndices.push(i);
         }
@@ -587,28 +560,27 @@ function setupCovers(modeCfg) {
 
     shuffleInPlace(candidateIndices, coverRng);
 
-    const toCover = Math.min(modeCfg.coveredGlasses || 0, candidateIndices.length);
+    const roughTarget = Math.round(candidateIndices.length * (modeCfg.coverRatio || 0.18));
+    const toCover = Math.min(roughTarget, candidateIndices.length);
 
     for (let k = 0; k < toCover; k++) {
         const idx = candidateIndices[k];
         const stackLen = glasses[idx].length;
         if (stackLen <= 1) continue;
 
-        const makeFullCover = coverRng() < 0.35; // ca 35% sjanse for full dekke
+        const makeFullCover = coverRng() < (modeCfg.fullCoverProb || 0.25);
 
         if (makeFullCover) {
+            // fullt dekke – må ha minst 1 frukt for å "låse opp"
             const required = coverRandInt(1, Math.min(stackLen, GLASS_CAPACITY));
             coveredPositions[idx] = { fullCover: required };
             initialCoveredPositions[idx] = [];
         } else {
+            // delvis dekke nederste frukter
             const maxDepth = Math.max(1, stackLen - 1);
             const depth = coverRandInt(1, maxDepth);
             const positions = [];
-
-            // Dekker de nederste "depth" fruktene (0 = bunn)
-            for (let j = 0; j < depth; j++) {
-                positions.push(j);
-            }
+            for (let j = 0; j < depth; j++) positions.push(j);
 
             initialCoveredPositions[idx] = positions.slice();
             coveredPositions[idx] = { positions: positions.slice() };
@@ -616,25 +588,28 @@ function setupCovers(modeCfg) {
     }
 }
 
-// Start nytt spill i gjeldende generatorMode
-function startNewGame() {
+// Start nytt spill for gitt modus
+function startNewGame(modeKey) {
+    currentModeKey = modeKey || currentModeKey || "casual";
+    const mode = MODE_CONFIG[currentModeKey] || MODE_CONFIG.casual;
+
     moves = 0;
     movesEl.textContent = "0";
     statusEl.textContent = "";
 
-    const modeCfg = SCRAMBLE_MODES[generatorMode];
-
+    // Generer nytt brett
+    const level = createRandomLevel(currentModeKey);
+    glasses = level.state;
     activeLevel = {
-        mode: generatorMode,
-        glasses: modeCfg.glasses,
-        emptyGlasses: modeCfg.emptyGlasses,
-        coveredGlasses: modeCfg.coveredGlasses
+        glasses: level.totalGlasses,
+        colorGlasses: level.colorGlasses,
+        emptyGlasses: level.emptyGlasses,
+        modeKey: currentModeKey,
+        scoreMultiplier: mode.scoreMultiplier || 1
     };
 
-    setCoverRng(null); // random dekke for nå
-    glasses = generateSolvableForCurrentMode();
-
-    setupCovers(modeCfg);
+    setCoverRng(null);         // frisk RNG for dekke
+    setupCoversForMode(mode);
 
     selectedGlassIndex = null;
     startTime = Date.now();
@@ -643,12 +618,28 @@ function startNewGame() {
 
 // ---- SCRAMBLE-KNAPPER (Casual / Challenging / Brutal / Insane) ----
 
-// Lager en bar under topbaren i HTML: "Scramble: Casual Challenging Brutal Insane"
-function initScrambleButtons() {
+function setModeAndRestart(modeKey) {
+    if (!MODE_CONFIG[modeKey]) return;
+    currentModeKey = modeKey;
+
+    // Oppdater knappestil
+    const buttons = document.querySelectorAll(".fs-gen-btn");
+    buttons.forEach(btn => {
+        const isActive = btn.dataset.genMode === modeKey;
+        btn.classList.toggle("fs-gen-btn-active", isActive);
+        btn.style.fontWeight = isActive ? "700" : "400";
+    });
+
+    startNewGame(modeKey);
+    const mode = MODE_CONFIG[modeKey];
+    statusEl.textContent = `New board – ${mode.label} mode.`;
+}
+
+function initGeneratorButtons() {
     const wrapper = document.querySelector(".fs-wrapper");
     if (!wrapper) return;
-    const topbar = document.querySelector(".fs-topbar");
-    if (!topbar) return;
+
+    const board = document.getElementById("fs-board");
 
     const bar = document.createElement("div");
     bar.className = "fs-genbar";
@@ -665,11 +656,11 @@ function initScrambleButtons() {
     bar.appendChild(label);
 
     ["casual", "challenging", "brutal", "insane"].forEach(modeKey => {
-        const cfg = SCRAMBLE_MODES[modeKey];
+        const cfg = MODE_CONFIG[modeKey];
         const btn = document.createElement("button");
         btn.type = "button";
         btn.textContent = cfg.label;
-        btn.dataset.mode = modeKey;
+        btn.dataset.genMode = modeKey;
         btn.className = "fs-gen-btn";
         btn.style.padding = "3px 10px";
         btn.style.borderRadius = "999px";
@@ -679,45 +670,30 @@ function initScrambleButtons() {
         btn.style.background = "#111827";
         btn.style.color = "#e5e7eb";
 
-        if (modeKey === generatorMode) {
+        if (modeKey === currentModeKey) {
             btn.classList.add("fs-gen-btn-active");
             btn.style.fontWeight = "700";
         } else {
             btn.style.fontWeight = "400";
         }
 
-        btn.addEventListener("click", () => {
-            setGeneratorMode(modeKey);
-        });
-
+        btn.addEventListener("click", () => setModeAndRestart(modeKey));
         bar.appendChild(btn);
     });
 
-    // Sett den rett under topbaren
-    wrapper.insertBefore(bar, boardEl);
+    // Legg den mellom top-bar og board
+    wrapper.insertBefore(bar, board);
 }
 
-function setGeneratorMode(modeKey) {
-    if (!SCRAMBLE_MODES[modeKey]) return;
-    generatorMode = modeKey;
-
-    const buttons = document.querySelectorAll(".fs-gen-btn");
-    buttons.forEach(btn => {
-        const isActive = btn.dataset.mode === modeKey;
-        btn.classList.toggle("fs-gen-btn-active", isActive);
-        btn.style.fontWeight = isActive ? "700" : "400";
-    });
-
-    startNewGame();
-
-    const cfg = SCRAMBLE_MODES[modeKey];
-    statusEl.textContent = `${cfg.label} – ${cfg.glasses} glasses, ${cfg.glasses - cfg.emptyGlasses} fruit types.`;
-}
-
-// Knytt reset-knapp til ny generering i samme mode
+// Knytt reset-knapp til aktiv modus
 resetBtn.addEventListener("click", () => {
-    startNewGame();
+    startNewGame(currentModeKey);
 });
+
+// ---- INIT ----
+
+initGeneratorButtons();
+startNewGame(currentModeKey);
 
 // ---- WIN CHECK & SCORING ----
 
@@ -731,8 +707,8 @@ function checkWin() {
     if (allOk) {
         const endTime = Date.now();
         const elapsed = startTime ? (endTime - startTime) : 0;
-        const modeCfg = SCRAMBLE_MODES[generatorMode] || { scoreMult: 1.0 };
-        const score = computeScore(moves, elapsed, modeCfg.scoreMult);
+        const mode = MODE_CONFIG[activeLevel.modeKey] || MODE_CONFIG.casual;
+        const score = computeScore(moves, elapsed, mode.scoreMultiplier || 1);
         lastScore = score;
 
         coveredPositions = {};
@@ -740,10 +716,16 @@ function checkWin() {
         drawBoard();
 
         statusEl.textContent = `🎉 You solved the board! Score: ${score}`;
+
+        const payload = {
+            score,
+            moves,
+            timeMs: elapsed,
+            mode: activeLevel.modeKey,
+            seed: levelSeed || null,
+            date: new Date().toISOString().slice(0, 10)
+        };
+        // Hooks for backend om du vil senere:
+        console.log("submitFruitSortScore", payload);
     }
 }
-
-// ---- INIT ----
-
-initScrambleButtons();
-startNewGame();
