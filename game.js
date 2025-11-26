@@ -429,7 +429,7 @@ function findMinSolutionMoves(startState, usedCount, maxDepth = 22) {
     return Infinity;
 }
 
-// Reverse-scramble using group-pours. Avoid immediate reversals to improve mixing.
+// Reverse-scramble using group-pours. Prefer partial moves to avoid leaving the board fully solved.
 function performScrambleOnce(state, movesTarget, rng, maxAttempts = 2000) {
     const total = state.length;
     let attempts = 0;
@@ -446,8 +446,28 @@ function performScrambleOnce(state, movesTarget, rng, maxAttempts = 2000) {
         const pool = candidates.length ? candidates : pours;
         const mv = pool[Math.floor(rng() * pool.length)];
 
-        for (let i = 0; i < mv.count; i++) {
-            state[mv.to].push(state[mv.from].pop());
+        // Decide how many to move: bias toward smaller moves so we break solved stacks.
+        let count = mv.count;
+        const toLen = state[mv.to].length;
+
+        if (mv.count > 1) {
+            // If pouring into an empty jar, avoid moving entire stack (would keep board solved)
+            if (toLen === 0 && mv.count === GLASS_CAPACITY) {
+                // move between 1 and mv.count-1
+                count = Math.floor(rng() * (mv.count - 1)) + 1;
+            } else {
+                // probabilistically prefer small moves (single-fruit most of the time)
+                const r = rng();
+                if (r < 0.6) count = 1;
+                else if (r < 0.9) count = Math.max(1, Math.floor(mv.count / 2));
+                else count = mv.count;
+            }
+        }
+
+        // perform the pour (move `count` fruits)
+        for (let i = 0; i < count; i++) {
+            const fruit = state[mv.from].pop();
+            state[mv.to].push(fruit);
         }
 
         lastMove = { from: mv.from, to: mv.to };
