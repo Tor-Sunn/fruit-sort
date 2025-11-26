@@ -5,54 +5,29 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Fruit Sort</title>
 
+    <!-- Stylesheet -->
     <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 
     <div class="fs-wrapper">
-
         <h1 class="fs-title">🍓 Fruit Sort</h1>
-        <p class="fs-sub">Prototype – Up to 18 glasses</p>
+        <p class="fs-sub">Arcade Prototype – 4 Scramble Modes</p>
 
         <!-- TOP BAR -->
         <div class="fs-topbar">
-
-            <!-- Moves -->
             <div>Moves: <span id="fs-moves">0</span></div>
-
-            <!-- Status text -->
             <div id="fs-status"></div>
 
-            <!-- Difficulty controls -->
-            <div class="fs-controls" style="display:flex; align-items:center; gap:12px;">
-
-                <label for="fs-difficulty" style="color:var(--muted); font-size:0.9rem;">
-                    Difficulty
-                </label>
-
-                <select id="fs-difficulty">
-                    <option value="easy">Easy</option>
-                    <option value="medium" selected>Medium</option>
-                    <option value="hard">Hard</option>
-                </select>
-
-                <label style="display:flex; align-items:center; gap:6px; color:var(--muted); font-size:0.9rem;">
-                    <input type="checkbox" id="fs-fast-hard" />
-                    Fast-hard
-                </label>
-
-            </div>
-
+            <!-- Reset -->
             <button id="fs-reset">New board</button>
         </div>
 
-        <!-- MODE BAR + SCRAMBLE BAR (Auto-generated) -->
-        <!-- game.js legger inn disse automatisk ved initGeneratorButtons() -->
         <!-- GAME BOARD -->
         <div id="fs-board" class="fs-board"></div>
-
     </div>
 
+    <!-- GAME SCRIPT -->
     <script src="game.js"></script>
 
 </body>

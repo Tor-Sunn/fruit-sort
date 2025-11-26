@@ -1,21 +1,19 @@
 // =======================
 // Fruit Sort – game.js
-// Arcade + Campaign, random men spillbart
+// Arcade-generator med 4 modes (Casual–Insane)
+// - Antall glass styres av scramble-mode
+// - Alltid 4 av hver frukttype
+// - Maks: 18 glass, 16 frukttyper
+// - Blad-dekke på noen glass for ekstra krydder
 // =======================
 
 // ---- KONSTANTER ----
 
-const MAX_GLASSES = 18;       // 6 i bredden * 3 rader (layout)
+const MAX_GLASSES = 18;       // 6 i bredden * 3 rader (CSS styrer layouten)
 const GLASS_CAPACITY = 4;
 
-// Standard brett (brukes ikke lenger direkte, men lar stå)
-const DEFAULT_LEVEL_CONFIG = {
-    glasses: 6,
-    emptyGlasses: 2,
-    coveredGlasses: 2
-};
-
 // Alle fruktfilene du har i /img
+// NB: Insane bruker alle 16 typene (18 glass – 2 tomme = 16 fulle)
 const FRUIT_POOL = [
     "fruit_apple",
     "fruit_banana",
@@ -34,45 +32,81 @@ const FRUIT_POOL = [
     "fruit_watermelon"
 ];
 
+// Scramble-moduser: bestemmer ALT for Arcade
+const SCRAMBLE_MODES = {
+    casual: {
+        label: "Casual",
+        glasses: 8,
+        emptyGlasses: 2,
+        coveredGlasses: 1,
+        scrambleFactor: 0.5,     // hvor mye vi blander
+        scoreMult: 1.0
+    },
+    challenging: {
+        label: "Challenging",
+        glasses: 12,
+        emptyGlasses: 2,
+        coveredGlasses: 2,
+        scrambleFactor: 0.8,
+        scoreMult: 1.2
+    },
+    brutal: {
+        label: "Brutal",
+        glasses: 15,
+        emptyGlasses: 2,
+        coveredGlasses: 3,
+        scrambleFactor: 1.1,
+        scoreMult: 1.5
+    },
+    insane: {
+        label: "Insane",
+        glasses: 18,
+        emptyGlasses: 2,
+        coveredGlasses: 4,
+        scrambleFactor: 1.4,
+        scoreMult: 1.8
+    }
+};
+
 // ---- DOM ----
 
 const boardEl = document.getElementById("fs-board");
 const movesEl = document.getElementById("fs-moves");
 const statusEl = document.getElementById("fs-status");
 const resetBtn = document.getElementById("fs-reset");
-const difficultySelect = document.getElementById("fs-difficulty");
-const fastHardCheckbox = document.getElementById("fs-fast-hard"); // ikke brukt i logikk nå
+
+// Eksisterende HTML (vi skjuler hele blokken – dropdown + fast-hard)
+// Så du slipper å endre index.html
+const controlsWrap = document.querySelector(".fs-controls");
+if (controlsWrap) {
+    controlsWrap.style.display = "none";
+}
 
 // ---- STATE ----
 
-// Mode: "arcade" eller "campaign"
-let currentMode = "arcade";
+// Hvilken scramble-mode som brukes (styrer alt: glass, frukt, dekke, blanding)
+let generatorMode = "challenging";
 
-// Generator-modus styrer hvor "kaotisk" brettet er via antall frukttyper.
-let generatorDifficulty = "brutal"; // "casual" | "challenging" | "brutal" | "insane"
-
-// Arcade / campaign state
 let glasses = [];          // Array av MAX_GLASSES glass, hvert glass = array med frukt (bunn -> topp)
-let activeLevel = { ...DEFAULT_LEVEL_CONFIG };
+let activeLevel = {
+    glasses: SCRAMBLE_MODES[generatorMode].glasses,
+    emptyGlasses: SCRAMBLE_MODES[generatorMode].emptyGlasses,
+    coveredGlasses: SCRAMBLE_MODES[generatorMode].coveredGlasses
+};
+
 let selectedGlassIndex = null;
 let moves = 0;
 
-// Dekke/blad-state
-let initialCoveredPositions = {};  // index -> [absIndex ...] fra start
-let coveredPositions = {};         // gjeldende dekke-data
+// initialCoveredPositions: index -> array av absolute indices (index-from-bottom) som var dekket ved start
+let initialCoveredPositions = {};
 
-// Score / daily / seed
+// coveredPositions: mutable remaining covered data for hvert glass.
+// Enten { positions: [absIndex,...] } (delvis dekke) eller { fullCover: N } (fullt dekket)
+let coveredPositions = {};
+
+// Score / tid
 let startTime = null;
 let lastScore = 0;
-let levelSeed = null;
-
-// Campaign-state
-let currentCampaignIndex = 0;
-let campaignLevelLabelEl = null;
-let campaignPrevBtn = null;
-let campaignNextBtn = null;
-let modeArcadeBtn = null;
-let modeCampaignBtn = null;
 
 // ---- HELPERFUNKSJONER ----
 
@@ -94,7 +128,7 @@ function isGlassComplete(stack) {
     return stack.every(f => f === stack[0]);
 }
 
-// Simple seeded RNG (Mulberry32)
+// Simple seeded RNG (Mulberry32) – kan brukes senere til daily
 function makeSeededRng(seed) {
     let t = seed >>> 0;
     return function () {
@@ -105,12 +139,6 @@ function makeSeededRng(seed) {
     };
 }
 
-// deterministic daily generator using date seed (YYYY-MM-DD -> int)
-function dateSeedFromDate(d) {
-    const y = d.getUTCFullYear(), m = d.getUTCMonth() + 1, day = d.getUTCDate();
-    return ((y * 100 + m) * 100 + day) >>> 0;
-}
-
 // compute a simple score: høyere for færre trekk og kortere tid.
 function computeScore(movesCount, elapsedMs, difficultyMultiplier = 1) {
     const elapsedSec = Math.max(1, Math.round(elapsedMs / 1000));
@@ -119,49 +147,7 @@ function computeScore(movesCount, elapsedMs, difficultyMultiplier = 1) {
     return score;
 }
 
-// ---- ARCADE PRESETS (størrelse / tomme glass / blader) ----
-
-const DIFFICULTY_PRESETS = {
-    easy: { glasses: 6, emptyGlasses: 2, coveredGlasses: 1, scrambleMoves: 70, multiplier: 1.0, fullCoverProb: 0.10 },
-    medium: { glasses: 8, emptyGlasses: 2, coveredGlasses: 2, scrambleMoves: 130, multiplier: 1.25, fullCoverProb: 0.22 },
-    hard: { glasses: 10, emptyGlasses: 2, coveredGlasses: 3, scrambleMoves: 200, multiplier: 1.5, fullCoverProb: 0.30 }
-};
-
-// Generator-moduser (brukes til å velge hvor mange frukttyper i spillet)
-const GENERATOR_MODES = {
-    casual: { label: "Casual", offsetTypes: 3 },
-    challenging: { label: "Challenging", offsetTypes: 2 },
-    brutal: { label: "Brutal", offsetTypes: 1 },
-    insane: { label: "Insane", offsetTypes: 0 }
-};
-
-// ---- CAMPAIGN LEVELS ----
-// Nivåene øker gradvis i størrelse / frukttyper / blader
-
-const CAMPAIGN_LEVELS = [
-    { id: 1, name: "Fresh Start", glasses: 4, emptyGlasses: 1, fruitTypes: 3, coveredGlasses: 0, fullCoverProb: 0.0 },
-    { id: 2, name: "First Mix", glasses: 5, emptyGlasses: 1, fruitTypes: 4, coveredGlasses: 0, fullCoverProb: 0.0 },
-    { id: 3, name: "Crowded", glasses: 6, emptyGlasses: 1, fruitTypes: 5, coveredGlasses: 1, fullCoverProb: 0.10 },
-    { id: 4, name: "Leaf Peek", glasses: 6, emptyGlasses: 2, fruitTypes: 5, coveredGlasses: 2, fullCoverProb: 0.18 },
-    { id: 5, name: "Tight Space", glasses: 7, emptyGlasses: 1, fruitTypes: 6, coveredGlasses: 2, fullCoverProb: 0.20 },
-    { id: 6, name: "Fruit Parade", glasses: 8, emptyGlasses: 2, fruitTypes: 6, coveredGlasses: 2, fullCoverProb: 0.22 },
-    { id: 7, name: "Hidden Twins", glasses: 8, emptyGlasses: 2, fruitTypes: 7, coveredGlasses: 3, fullCoverProb: 0.24 },
-    { id: 8, name: "Crowded Leaves", glasses: 9, emptyGlasses: 2, fruitTypes: 7, coveredGlasses: 3, fullCoverProb: 0.28 },
-    { id: 9, name: "Juice Factory", glasses: 10, emptyGlasses: 2, fruitTypes: 8, coveredGlasses: 3, fullCoverProb: 0.30 },
-    { id: 10, name: "Mango Storm", glasses: 11, emptyGlasses: 2, fruitTypes: 9, coveredGlasses: 3, fullCoverProb: 0.32 },
-    { id: 11, name: "Busy Bar", glasses: 12, emptyGlasses: 2, fruitTypes: 10, coveredGlasses: 4, fullCoverProb: 0.34 },
-    { id: 12, name: "Deep Orchard", glasses: 13, emptyGlasses: 2, fruitTypes: 11, coveredGlasses: 4, fullCoverProb: 0.36 },
-    { id: 13, name: "Berry Jungle", glasses: 14, emptyGlasses: 2, fruitTypes: 12, coveredGlasses: 4, fullCoverProb: 0.36 },
-    { id: 14, name: "Kiwi Chaos", glasses: 14, emptyGlasses: 2, fruitTypes: 13, coveredGlasses: 4, fullCoverProb: 0.38 },
-    { id: 15, name: "Citrus Stack", glasses: 15, emptyGlasses: 2, fruitTypes: 13, coveredGlasses: 5, fullCoverProb: 0.38 },
-    { id: 16, name: "Blueberry Nights", glasses: 16, emptyGlasses: 2, fruitTypes: 14, coveredGlasses: 5, fullCoverProb: 0.40 },
-    { id: 17, name: "Fruit Labyrinth", glasses: 17, emptyGlasses: 2, fruitTypes: 14, coveredGlasses: 5, fullCoverProb: 0.40 },
-    { id: 18, name: "Almost Full", glasses: 18, emptyGlasses: 2, fruitTypes: 15, coveredGlasses: 5, fullCoverProb: 0.42 },
-    { id: 19, name: "Fruit Storm", glasses: 18, emptyGlasses: 1, fruitTypes: 15, coveredGlasses: 6, fullCoverProb: 0.45 },
-    { id: 20, name: "Grand Finale", glasses: 18, emptyGlasses: 1, fruitTypes: 15, coveredGlasses: 8, fullCoverProb: 0.48 }
-];
-
-// ---- COVER RNG (for deterministic daily / campaign) ----
+// ---- COVER RNG ----
 
 let coverRng = Math.random;
 
@@ -299,7 +285,7 @@ function drawBoard() {
         const cover = coveredPositions[i];
 
         if (cover && cover.fullCover && cover.fullCover > 0 && i < activeLevel.glasses) {
-            // full overlay
+            // full overlay med ? + antall
             const overlay = document.createElement("div");
             overlay.className = "fs-full-cover";
             overlay.setAttribute("aria-hidden", "true");
@@ -369,108 +355,105 @@ function drawBoard() {
     schedulePositionLeaves();
 }
 
-// ---- NIVÅGENERERING (RANDOM, MEN MED MINST ETT TREKK) ----
+// ---- NIVÅGENERERING ----
 
-// Sjekk om hele state er "trivielt løst" (alle fulle glass er komplette)
-function isTriviallySolved(state, usedCount) {
-    for (let i = 0; i < usedCount; i++) {
-        const stack = state[i];
-        if (stack.length === 0) continue;
-        if (!isGlassComplete(stack)) return false;
-    }
-    return true;
-}
+// Bygg helt løst nivå for en gitt scramble-mode:
+// - Hver fulle flaske har 4 like frukter
+// - Ingen frukttype brukes mer enn 4 ganger
+function buildSolvedStateForMode(modeCfg, rng) {
+    const numGlasses = modeCfg.glasses;
+    const emptyGlasses = modeCfg.emptyGlasses;
+    const filledGlasses = numGlasses - emptyGlasses;
 
-// Finnes det minst ett lovlig trekk?
-function hasAnyLegalMove(state, usedCount) {
-    for (let from = 0; from < usedCount; from++) {
-        const fs = state[from];
-        if (!fs || fs.length === 0) continue;
-        const topFruit = fs[fs.length - 1];
+    // ANTALL frukttyper = antall fulle glass
+    const neededTypes = Math.min(filledGlasses, FRUIT_POOL.length);
 
-        for (let to = 0; to < usedCount; to++) {
-            if (to === from) continue;
-            const ts = state[to];
-            if (!ts) continue;
-            if (ts.length >= GLASS_CAPACITY) continue;
-            if (ts.length === 0 || ts[ts.length - 1] === topFruit) {
-                return true;
-            }
-        }
-    }
-    return false;
-}
+    // Velg og bland frukttypene
+    const fruits = shuffleInPlace([...FRUIT_POOL], rng).slice(0, neededTypes);
 
-// Bygg ett tilfeldig brett med gitt config (uten garanti, brukes internt)
-function buildRandomState(config, seed) {
-    const rng = (seed == null) ? Math.random : makeSeededRng(seed);
-
-    const numGlasses = config.glasses;
-    const emptyGlasses = Math.max(0, Math.min(config.emptyGlasses || 0, numGlasses - 1));
-    const nonEmpty = numGlasses - emptyGlasses;
-
-    const maxFruitTypes = Math.min(FRUIT_POOL.length, nonEmpty);
-    const fruitTypes = Math.max(3, Math.min(config.fruitTypes || maxFruitTypes, maxFruitTypes));
-
-    // velg frukttyper
-    const chosenFruits = shuffleInPlace([...FRUIT_POOL], rng).slice(0, fruitTypes);
-
-    // lag flat liste med frukt (hver stabel får 4 frukter, fordelt på valgt spekter)
-    const fruitsFlat = [];
-    for (let i = 0; i < nonEmpty; i++) {
-        const f = chosenFruits[i % chosenFruits.length];
-        for (let k = 0; k < GLASS_CAPACITY; k++) {
-            fruitsFlat.push(f);
-        }
-    }
-    shuffleInPlace(fruitsFlat, rng);
-
-    // fyll glass
     const state = [];
-    let idx = 0;
-    for (let g = 0; g < numGlasses; g++) {
-        const stack = [];
-        if (g < nonEmpty) {
-            for (let k = 0; k < GLASS_CAPACITY; k++) {
-                stack.push(fruitsFlat[idx++]);
-            }
-        }
-        state.push(stack);
+
+    // Fylte glass
+    for (let i = 0; i < filledGlasses; i++) {
+        const fruitName = fruits[i % neededTypes]; // burde være 1:1 men sikrer oss
+        state.push(Array.from({ length: GLASS_CAPACITY }, () => fruitName));
     }
 
+    // Tomme glass
+    for (let i = 0; i < emptyGlasses; i++) {
+        state.push([]);
+    }
+
+    // Fyll opp til numGlasses (normalt unødvendig, men greit for fremtid)
+    while (state.length < numGlasses) state.push([]);
+
+    // Og til MAX_GLASSES for layout
     while (state.length < MAX_GLASSES) state.push([]);
 
     return state;
 }
 
-// Hovedgenerator – prøver flere ganger til vi får et brett med minst ett trekk & ikke trivielt løst
-function generateSolvableLevel(config, _scrambleMovesIgnored = 0, seed = null) {
-    const usedCount = config.glasses;
-    const baseSeed = (seed == null) ? (Math.floor(Math.random() * 0xffffffff) >>> 0) : (seed >>> 0);
-    const maxTries = 50;
+// Reverse-scramble med ENKELT-frukt flytt – alltid løsbart
+function scrambleStateSingleFruit(state, movesTarget, rng, usedCount) {
+    const maxAttempts = movesTarget * 10;
 
-    let lastState = null;
+    let movesDone = 0;
+    let attempts = 0;
 
-    for (let attempt = 0; attempt < maxTries; attempt++) {
-        const s = buildRandomState(config, baseSeed + attempt * 9973);
-        lastState = s;
-        if (isTriviallySolved(s, usedCount)) continue;
-        if (!hasAnyLegalMove(s, usedCount)) continue;
-        return s;
+    while (movesDone < movesTarget && attempts < maxAttempts) {
+        attempts++;
+
+        const fromCandidates = [];
+        for (let i = 0; i < usedCount; i++) {
+            if (state[i].length > 0) fromCandidates.push(i);
+        }
+        if (!fromCandidates.length) break;
+
+        const from = fromCandidates[randInt(0, fromCandidates.length - 1, rng)];
+        const fromStack = state[from];
+        const fruit = fromStack[fromStack.length - 1];
+
+        const toCandidates = [];
+        for (let j = 0; j < usedCount; j++) {
+            if (j === from) continue;
+            const tstack = state[j];
+            if (tstack.length >= GLASS_CAPACITY) continue;
+            if (tstack.length === 0 || tstack[tstack.length - 1] === fruit) {
+                toCandidates.push(j);
+            }
+        }
+        if (!toCandidates.length) continue;
+
+        const to = toCandidates[randInt(0, toCandidates.length - 1, rng)];
+
+        // flytt én frukt
+        state[to].push(fromStack.pop());
+        movesDone++;
     }
 
-    // fallback – tar siste forsøk selv om det kanskje ikke er optimalt
-    return lastState || buildRandomState(config, baseSeed + 12345);
+    return state;
 }
 
-// Daily-variant: bruker dato til seed
-function generateDailyLevel(config, date = new Date(), scrambleMoves = 0) {
-    const seed = dateSeedFromDate(date);
-    levelSeed = seed;
-    return generateSolvableLevel(config, scrambleMoves, seed);
+// Generer løsbart brett for aktiv generatorMode
+function generateSolvableForCurrentMode(seed = null) {
+    const modeCfg = SCRAMBLE_MODES[generatorMode];
+    const rng = seed == null ? Math.random : makeSeededRng(seed);
+
+    let state = buildSolvedStateForMode(modeCfg, rng);
+
+    const filledGlasses = modeCfg.glasses - modeCfg.emptyGlasses;
+    const totalFruits = filledGlasses * GLASS_CAPACITY;
+
+    // Litt heuristikk for hvor mye vi skal blande:
+    const baseMoves = totalFruits * 1.2; // start rundt 1.2x antall frukter
+    const factor = modeCfg.scrambleFactor;
+    const movesTarget = Math.max(20, Math.round(baseMoves * factor));
+
+    scrambleStateSingleFruit(state, movesTarget, rng, modeCfg.glasses);
+    return state;
 }
 
-// ---- INTERAKSJON / MOVES ----
+// ---- INTERAKSJON ----
 
 function handleGlassClick(index) {
     if (index >= activeLevel.glasses) return;
@@ -589,9 +572,9 @@ boardEl.addEventListener("click", (e) => {
 // Re-posisjonér blader ved resize
 window.addEventListener("resize", () => schedulePositionLeaves());
 
-// ---- COVERS ----
+// ---- START / RESET + DEKKE ----
 
-function setupCovers(preset) {
+function setupCovers(modeCfg) {
     initialCoveredPositions = {};
     coveredPositions = {};
 
@@ -604,14 +587,14 @@ function setupCovers(preset) {
 
     shuffleInPlace(candidateIndices, coverRng);
 
-    const toCover = Math.min(activeLevel.coveredGlasses || 0, candidateIndices.length);
+    const toCover = Math.min(modeCfg.coveredGlasses || 0, candidateIndices.length);
 
     for (let k = 0; k < toCover; k++) {
         const idx = candidateIndices[k];
         const stackLen = glasses[idx].length;
         if (stackLen <= 1) continue;
 
-        const makeFullCover = coverRng() < (preset.fullCoverProb || 0.2);
+        const makeFullCover = coverRng() < 0.35; // ca 35% sjanse for full dekke
 
         if (makeFullCover) {
             const required = coverRandInt(1, Math.min(stackLen, GLASS_CAPACITY));
@@ -633,269 +616,44 @@ function setupCovers(preset) {
     }
 }
 
-// ---- START / RESET / MODE ----
-
-// Oppdater campaign-UI (level label + knapper)
-function updateCampaignUI() {
-    if (!campaignLevelLabelEl || !campaignPrevBtn || !campaignNextBtn) return;
-
-    if (currentMode !== "campaign") {
-        campaignLevelLabelEl.textContent = "";
-        campaignPrevBtn.disabled = true;
-        campaignNextBtn.disabled = true;
-        return;
-    }
-
-    const total = CAMPAIGN_LEVELS.length;
-    const idx = Math.max(0, Math.min(currentCampaignIndex, total - 1));
-    const level = CAMPAIGN_LEVELS[idx];
-
-    campaignLevelLabelEl.textContent = `Level ${level.id || (idx + 1)} / ${total}`;
-    campaignPrevBtn.disabled = (idx === 0);
-    campaignNextBtn.disabled = (idx >= total - 1);
-}
-
-// Start nytt spill
-// options: { mode: "arcade"|"campaign"|"daily", difficulty?, campaignIndex?, date? }
-function startNewGame(options = {}) {
+// Start nytt spill i gjeldende generatorMode
+function startNewGame() {
     moves = 0;
     movesEl.textContent = "0";
     statusEl.textContent = "";
 
-    let mode = options.mode || currentMode || "arcade";
-    if (mode !== "arcade" && mode !== "campaign" && mode !== "daily") mode = "arcade";
-    currentMode = mode;
+    const modeCfg = SCRAMBLE_MODES[generatorMode];
 
-    let presetForCovers = null;
+    activeLevel = {
+        mode: generatorMode,
+        glasses: modeCfg.glasses,
+        emptyGlasses: modeCfg.emptyGlasses,
+        coveredGlasses: modeCfg.coveredGlasses
+    };
 
-    if (mode === "campaign") {
-        const total = CAMPAIGN_LEVELS.length;
-        let idx = (typeof options.campaignIndex === "number") ? options.campaignIndex : currentCampaignIndex;
-        if (isNaN(idx)) idx = 0;
-        idx = Math.max(0, Math.min(idx, total - 1));
-        currentCampaignIndex = idx;
+    setCoverRng(null); // random dekke for nå
+    glasses = generateSolvableForCurrentMode();
 
-        const lvl = CAMPAIGN_LEVELS[idx];
-
-        activeLevel = {
-            glasses: lvl.glasses,
-            emptyGlasses: lvl.emptyGlasses,
-            coveredGlasses: lvl.coveredGlasses || 0,
-            fruitTypes: lvl.fruitTypes,
-            _presetName: lvl.name || `Level ${lvl.id || (idx + 1)}`
-        };
-
-        presetForCovers = {
-            fullCoverProb: lvl.fullCoverProb ?? 0.25
-        };
-
-        levelSeed = lvl.id || (idx + 1);
-        setCoverRng(levelSeed);
-        glasses = generateSolvableLevel(activeLevel, 0, levelSeed);
-    } else if (mode === "daily") {
-        // enkel daily: bruk dagens dato + valgt difficulty
-        const difficulty = options.difficulty || (difficultySelect ? difficultySelect.value : "medium");
-        const base = DIFFICULTY_PRESETS[difficulty] || DIFFICULTY_PRESETS.medium;
-
-        const nonEmpty = base.glasses - base.emptyGlasses;
-        const modeCfg = GENERATOR_MODES[generatorDifficulty] || GENERATOR_MODES.brutal;
-        const offset = modeCfg.offsetTypes ?? 1;
-        const fruitTypes = Math.max(3, Math.min(nonEmpty, nonEmpty - offset));
-
-        activeLevel = {
-            glasses: base.glasses,
-            emptyGlasses: base.emptyGlasses,
-            coveredGlasses: base.coveredGlasses,
-            fruitTypes,
-            _presetName: `Daily ${difficulty}`
-        };
-
-        presetForCovers = base;
-        const date = options.date || new Date();
-        levelSeed = dateSeedFromDate(date);
-        setCoverRng(levelSeed);
-        glasses = generateDailyLevel(activeLevel, date, 0);
-    } else {
-        // ARCADE
-        const difficulty = options.difficulty || (difficultySelect ? difficultySelect.value : "medium");
-        const base = DIFFICULTY_PRESETS[difficulty] || DIFFICULTY_PRESETS.medium;
-
-        const nonEmpty = base.glasses - base.emptyGlasses;
-        const modeCfg = GENERATOR_MODES[generatorDifficulty] || GENERATOR_MODES.brutal;
-        const offset = modeCfg.offsetTypes ?? 1;
-        const fruitTypes = Math.max(3, Math.min(nonEmpty, nonEmpty - offset));
-
-        activeLevel = {
-            glasses: base.glasses,
-            emptyGlasses: base.emptyGlasses,
-            coveredGlasses: base.coveredGlasses,
-            fruitTypes,
-            _presetName: difficulty
-        };
-
-        presetForCovers = base;
-        levelSeed = null;
-        setCoverRng(null);
-        glasses = generateSolvableLevel(activeLevel, base.scrambleMoves, null);
-    }
-
-    setupCovers(presetForCovers || { fullCoverProb: 0.0 });
+    setupCovers(modeCfg);
 
     selectedGlassIndex = null;
     startTime = Date.now();
     drawBoard();
-    updateCampaignUI();
 }
 
-// Bytt mellom Arcade / Campaign
-function setGameMode(mode) {
-    if (mode !== "arcade" && mode !== "campaign") mode = "arcade";
-    currentMode = mode;
+// ---- SCRAMBLE-KNAPPER (Casual / Challenging / Brutal / Insane) ----
 
-    if (modeArcadeBtn && modeCampaignBtn) {
-        modeArcadeBtn.classList.toggle("fs-mode-btn-active", mode === "arcade");
-        modeCampaignBtn.classList.toggle("fs-mode-btn-active", mode === "campaign");
-        modeArcadeBtn.style.fontWeight = mode === "arcade" ? "700" : "400";
-        modeCampaignBtn.style.fontWeight = mode === "campaign" ? "700" : "400";
-    }
-
-    if (mode === "campaign" && CAMPAIGN_LEVELS.length > 0) {
-        startNewGame({ mode: "campaign", campaignIndex: currentCampaignIndex });
-    } else {
-        const diff = difficultySelect ? difficultySelect.value : "medium";
-        startNewGame({ mode: "arcade", difficulty: diff });
-    }
-}
-
-// GENERATOR-KNAPPER (Casual / Challenging / Brutal / Insane)
-
-function setGeneratorMode(mode) {
-    if (!GENERATOR_MODES[mode]) return;
-    generatorDifficulty = mode;
-
-    // Oppdater knappestil
-    const buttons = document.querySelectorAll(".fs-gen-btn");
-    buttons.forEach(btn => {
-        const isActive = btn.dataset.genMode === mode;
-        btn.classList.toggle("fs-gen-btn-active", isActive);
-        btn.style.fontWeight = isActive ? "700" : "400";
-    });
-
-    const diff = difficultySelect ? difficultySelect.value : "medium";
-    startNewGame({ mode: currentMode, difficulty: diff });
-
-    statusEl.textContent = `New board – ${GENERATOR_MODES[mode].label} scramble.`;
-}
-
-// Sett opp UI-knapper for mode + scramble
-function initGeneratorButtons() {
+// Lager en bar under topbaren i HTML: "Scramble: Casual Challenging Brutal Insane"
+function initScrambleButtons() {
     const wrapper = document.querySelector(".fs-wrapper");
     if (!wrapper) return;
+    const topbar = document.querySelector(".fs-topbar");
+    if (!topbar) return;
 
-    const board = document.getElementById("fs-board");
-
-    // --- MODE BAR (Arcade / Campaign + level) ---
-    const modeBar = document.createElement("div");
-    modeBar.className = "fs-modebar";
-    modeBar.style.marginTop = "4px";
-    modeBar.style.marginBottom = "4px";
-    modeBar.style.fontSize = "0.9rem";
-    modeBar.style.display = "flex";
-    modeBar.style.alignItems = "center";
-    modeBar.style.gap = "8px";
-
-    const modeLabel = document.createElement("span");
-    modeLabel.textContent = "Mode:";
-    modeLabel.style.opacity = "0.8";
-    modeBar.appendChild(modeLabel);
-
-    modeArcadeBtn = document.createElement("button");
-    modeArcadeBtn.type = "button";
-    modeArcadeBtn.textContent = "Arcade";
-    modeArcadeBtn.className = "fs-mode-btn";
-    modeArcadeBtn.style.padding = "3px 10px";
-    modeArcadeBtn.style.borderRadius = "999px";
-    modeArcadeBtn.style.border = "none";
-    modeArcadeBtn.style.cursor = "pointer";
-    modeArcadeBtn.style.fontSize = "0.85rem";
-    modeArcadeBtn.style.background = "#111827";
-    modeArcadeBtn.style.color = "#e5e7eb";
-
-    modeCampaignBtn = document.createElement("button");
-    modeCampaignBtn.type = "button";
-    modeCampaignBtn.textContent = "Campaign";
-    modeCampaignBtn.className = "fs-mode-btn";
-    modeCampaignBtn.style.padding = "3px 10px";
-    modeCampaignBtn.style.borderRadius = "999px";
-    modeCampaignBtn.style.border = "none";
-    modeCampaignBtn.style.cursor = "pointer";
-    modeCampaignBtn.style.fontSize = "0.85rem";
-    modeCampaignBtn.style.background = "#111827";
-    modeCampaignBtn.style.color = "#e5e7eb";
-
-    modeBar.appendChild(modeArcadeBtn);
-    modeBar.appendChild(modeCampaignBtn);
-
-    const sep = document.createElement("span");
-    sep.textContent = "·";
-    sep.style.opacity = "0.6";
-    modeBar.appendChild(sep);
-
-    campaignPrevBtn = document.createElement("button");
-    campaignPrevBtn.type = "button";
-    campaignPrevBtn.textContent = "◀";
-    campaignPrevBtn.style.padding = "2px 8px";
-    campaignPrevBtn.style.borderRadius = "999px";
-    campaignPrevBtn.style.border = "none";
-    campaignPrevBtn.style.cursor = "pointer";
-    campaignPrevBtn.style.fontSize = "0.8rem";
-    campaignPrevBtn.style.background = "#111827";
-    campaignPrevBtn.style.color = "#e5e7eb";
-
-    campaignLevelLabelEl = document.createElement("span");
-    campaignLevelLabelEl.style.minWidth = "120px";
-    campaignLevelLabelEl.style.textAlign = "center";
-    campaignLevelLabelEl.style.opacity = "0.9";
-
-    campaignNextBtn = document.createElement("button");
-    campaignNextBtn.type = "button";
-    campaignNextBtn.textContent = "▶";
-    campaignNextBtn.style.padding = "2px 8px";
-    campaignNextBtn.style.borderRadius = "999px";
-    campaignNextBtn.style.border = "none";
-    campaignNextBtn.style.cursor = "pointer";
-    campaignNextBtn.style.fontSize = "0.8rem";
-    campaignNextBtn.style.background = "#111827";
-    campaignNextBtn.style.color = "#e5e7eb";
-
-    modeBar.appendChild(campaignPrevBtn);
-    modeBar.appendChild(campaignLevelLabelEl);
-    modeBar.appendChild(campaignNextBtn);
-
-    wrapper.insertBefore(modeBar, board);
-
-    // Mode-buttons handlers
-    modeArcadeBtn.addEventListener("click", () => setGameMode("arcade"));
-    modeCampaignBtn.addEventListener("click", () => setGameMode("campaign"));
-
-    campaignPrevBtn.addEventListener("click", () => {
-        if (currentCampaignIndex > 0) {
-            currentCampaignIndex--;
-            startNewGame({ mode: "campaign", campaignIndex: currentCampaignIndex });
-        }
-    });
-    campaignNextBtn.addEventListener("click", () => {
-        if (currentCampaignIndex < CAMPAIGN_LEVELS.length - 1) {
-            currentCampaignIndex++;
-            startNewGame({ mode: "campaign", campaignIndex: currentCampaignIndex });
-        }
-    });
-
-    // --- SCRAMBLE BAR (Casual / Challenging / Brutal / Insane) ---
     const bar = document.createElement("div");
     bar.className = "fs-genbar";
-    bar.style.marginTop = "2px";
-    bar.style.marginBottom = "6px";
+    bar.style.marginTop = "4px";
+    bar.style.marginBottom = "4px";
     bar.style.fontSize = "0.9rem";
     bar.style.display = "flex";
     bar.style.alignItems = "center";
@@ -906,12 +664,12 @@ function initGeneratorButtons() {
     label.style.opacity = "0.8";
     bar.appendChild(label);
 
-    ["casual", "challenging", "brutal", "insane"].forEach(mode => {
-        const cfg = GENERATOR_MODES[mode];
+    ["casual", "challenging", "brutal", "insane"].forEach(modeKey => {
+        const cfg = SCRAMBLE_MODES[modeKey];
         const btn = document.createElement("button");
         btn.type = "button";
         btn.textContent = cfg.label;
-        btn.dataset.genMode = mode;
+        btn.dataset.mode = modeKey;
         btn.className = "fs-gen-btn";
         btn.style.padding = "3px 10px";
         btn.style.borderRadius = "999px";
@@ -921,41 +679,45 @@ function initGeneratorButtons() {
         btn.style.background = "#111827";
         btn.style.color = "#e5e7eb";
 
-        if (mode === generatorDifficulty) {
+        if (modeKey === generatorMode) {
             btn.classList.add("fs-gen-btn-active");
             btn.style.fontWeight = "700";
         } else {
             btn.style.fontWeight = "400";
         }
 
-        btn.addEventListener("click", () => setGeneratorMode(mode));
+        btn.addEventListener("click", () => {
+            setGeneratorMode(modeKey);
+        });
+
         bar.appendChild(btn);
     });
 
-    wrapper.insertBefore(bar, board);
-
-    // sett initial mode-knapp
-    setGameMode(currentMode);
+    // Sett den rett under topbaren
+    wrapper.insertBefore(bar, boardEl);
 }
 
-// Reset-knappen
+function setGeneratorMode(modeKey) {
+    if (!SCRAMBLE_MODES[modeKey]) return;
+    generatorMode = modeKey;
+
+    const buttons = document.querySelectorAll(".fs-gen-btn");
+    buttons.forEach(btn => {
+        const isActive = btn.dataset.mode === modeKey;
+        btn.classList.toggle("fs-gen-btn-active", isActive);
+        btn.style.fontWeight = isActive ? "700" : "400";
+    });
+
+    startNewGame();
+
+    const cfg = SCRAMBLE_MODES[modeKey];
+    statusEl.textContent = `${cfg.label} – ${cfg.glasses} glasses, ${cfg.glasses - cfg.emptyGlasses} fruit types.`;
+}
+
+// Knytt reset-knapp til ny generering i samme mode
 resetBtn.addEventListener("click", () => {
-    if (currentMode === "campaign") {
-        startNewGame({ mode: "campaign", campaignIndex: currentCampaignIndex });
-    } else {
-        const diff = difficultySelect ? difficultySelect.value : "medium";
-        startNewGame({ mode: "arcade", difficulty: diff });
-    }
+    startNewGame();
 });
-
-// ---- INIT ----
-
-// Sett opp mode + generator-knapper
-initGeneratorButtons();
-
-// initial start – bruk UI-valg
-const initialDiff = difficultySelect ? difficultySelect.value : "medium";
-startNewGame({ mode: "arcade", difficulty: initialDiff });
 
 // ---- WIN CHECK & SCORING ----
 
@@ -969,12 +731,8 @@ function checkWin() {
     if (allOk) {
         const endTime = Date.now();
         const elapsed = startTime ? (endTime - startTime) : 0;
-        const diffName = activeLevel._presetName || "easy";
-
-        const diffPreset = DIFFICULTY_PRESETS[diffName];
-        const multiplier = diffPreset ? diffPreset.multiplier : 1.0;
-
-        const score = computeScore(moves, elapsed, multiplier);
+        const modeCfg = SCRAMBLE_MODES[generatorMode] || { scoreMult: 1.0 };
+        const score = computeScore(moves, elapsed, modeCfg.scoreMult);
         lastScore = score;
 
         coveredPositions = {};
@@ -982,20 +740,10 @@ function checkWin() {
         drawBoard();
 
         statusEl.textContent = `🎉 You solved the board! Score: ${score}`;
-
-        const payload = {
-            score,
-            moves,
-            timeMs: elapsed,
-            difficulty: diffName,
-            seed: levelSeed || null,
-            mode: currentMode,
-            levelIndex: currentCampaignIndex,
-            date: new Date().toISOString().slice(0, 10)
-        };
-        console.log("submitGlobalScore", payload);
-        if (levelSeed && currentMode !== "arcade") {
-            console.log("submitDailyScore", payload);
-        }
     }
 }
+
+// ---- INIT ----
+
+initScrambleButtons();
+startNewGame();
