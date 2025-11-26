@@ -583,23 +583,90 @@ function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
         console.debug(`[gen] attempt ${attempt} rejected`, { minSolve });
     }
 
+    // Replace the fallback block inside `generateSolvableLevel` with this more robust fallback.
+    // It tries several stronger reverse-scrambles + conflict injections and, as a last resort,
+    // performs random legal group-pours until the board is no longer trivially solved.
+
+    // fallback: stronger attempt to produce a non-trivial unsolved state
     if (!finalState) {
-        console.warn("[gen] no acceptable scramble found — using fallback unsolve");
-        const fb = buildSolvedState();
-        const total = fb.length;
-        outer:
-        for (let i = 0; i < total; i++) {
-            for (let j = 0; j < total; j++) {
-                if (i === j) continue;
-                if (fb[i].length > 0 && fb[j].length < GLASS_CAPACITY) {
-                    fb[j].push(fb[i].pop());
-                    break outer;
+        console.warn("[gen] entering robust fallback generation");
+        const MAX_FALLBACK_ATTEMPTS = 6;
+        for (let fbAttempt = 0; fbAttempt < MAX_FALLBACK_ATTEMPTS && !finalState; fbAttempt++) {
+            const fb = buildSolvedState();
+
+            // do a moderate reverse-scramble using group-pours
+            const scrambleMovesFallback = 60 + fbAttempt * 30;
+            performScrambleOnce(fb, scrambleMovesFallback, rng);
+
+            // inject a couple of conflicts to break easy solves
+            injectConflicts(fb, numGlasses, rng, 2 + fbAttempt);
+
+            // pad to UI size
+            while (fb.length < MAX_GLASSES) fb.push([]);
+
+            // check it's not fully solved and has at least minimal complexity
+            if (!isAllSolvedFull(fb)) {
+                const fbMinSolve = findMinSolutionMoves(fb, numGlasses, 12);
+                if (fbMinSolve !== Infinity && fbMinSolve > 1) {
+                    finalState = fb;
+                    console.info("[gen] fallback accepted (scramble+inject)", { fbAttempt, fbMinSolve, scrambleMovesFallback });
+                    break;
                 }
             }
         }
-        while (fb.length < MAX_GLASSES) fb.push([]);
-        finalState = fb;
-        console.info("[gen] fallback produced board (likely trivial)");
+
+        // last-resort: perform repeated random legal group-pours until state is unsolved or attempts exhausted
+        if (!finalState) {
+            const fb2 = buildSolvedState();
+            let attempts = 0;
+            const maxAttempts = 600;
+            while (isAllSolvedFull(fb2) && attempts < maxAttempts) {
+                const pours = getLegalPours(fb2);
+                if (!pours.length) break;
+                const mv = pours[Math.floor(rng() * pours.length)];
+
+                // choose a count biased to small moves, avoid moving entire full stack into empty jar
+                let cnt = 1;
+                if (mv.count > 1) {
+                    const r = rng();
+                    if (r < 0.7) cnt = 1;
+                    else if (r < 0.9) cnt = Math.max(1, Math.floor(mv.count / 2));
+                    else cnt = mv.count;
+                    if (fb2[mv.to].length === 0 && cnt === mv.count && mv.count > 1) cnt = 1;
+                }
+
+                for (let i = 0; i < cnt; i++) {
+                    fb2[mv.to].push(fb2[mv.from].pop());
+                }
+
+                // small random conflict occasionally
+                if (attempts % 50 === 0) injectConflicts(fb2, numGlasses, rng, 1);
+
+                attempts++;
+            }
+
+            while (fb2.length < MAX_GLASSES) fb2.push([]);
+            finalState = fb2;
+            console.info("[gen] fallback final produced board after random pours", { attempts });
+        }
+
+        if (!finalState) {
+            // absolute safety: return the simple forced-unsolve (shouldn't happen)
+            const fb = buildSolvedState();
+            outer:
+            for (let i = 0; i < fb.length; i++) {
+                for (let j = 0; j < fb.length; j++) {
+                    if (i === j) continue;
+                    if (fb[i].length > 0 && fb[j].length < GLASS_CAPACITY) {
+                        fb[j].push(fb[i].pop());
+                        break outer;
+                    }
+                }
+            }
+            while (fb.length < MAX_GLASSES) fb.push([]);
+            finalState = fb;
+            console.info("[gen] fallback absolute safety used");
+        }
     }
 
     return finalState;
