@@ -243,10 +243,12 @@ async function submitDailyScore(payload) {
 // ---- RENDERING / LEAVES ----
 
 // Compute bottom percentage for a fruit at indexFromBottom (0 = bottom) so leaf sits exactly over that fruit.
-function computeLeafBottomPercent(indexFromBottom) {
+// Uses the current stack length so fallback percent placement matches the visible fruit spacing.
+function computeLeafBottomPercent(indexFromBottom, stackLen = GLASS_CAPACITY) {
     const base = 10; // bottom anchor in CSS
-    const height = 58; // stack height percent in CSS
-    const slots = Math.max(1, GLASS_CAPACITY - 1); // for 4 capacity, distribute across 3 intervals
+    const height = 58; // stack height percent in CSS (space used by fruit stack)
+    // distribute across actual slots in current stack (stackLen fruits -> stackLen-1 intervals)
+    const slots = Math.max(1, stackLen - 1);
     const step = height / slots;
     return base + indexFromBottom * step;
 }
@@ -289,8 +291,8 @@ function positionLeaves() {
             w.style.bottom = "";
         } else {
             // fallback percent placement (when measurements not available)
-            // compute percent relative to stack layout
-            const bottomPct = computeLeafBottomPercent(coveredIndex);
+            // compute percent relative to stack layout using actual stack length
+            const bottomPct = computeLeafBottomPercent(coveredIndex, stack.length || 1);
             // keep leaf slightly lower for better coverage
             const lowered = Math.max(0, bottomPct - 3);
             w.style.left = `50%`;
@@ -383,7 +385,8 @@ function drawBoard() {
                     leafWrap.dataset.glass = String(i);
                     leafWrap.dataset.coveredIndex = String(pos);
 
-                    const bottomPct = computeLeafBottomPercent(pos);
+                    // Use stack-aware percent placement for fallback values
+                    const bottomPct = computeLeafBottomPercent(pos, stack.length);
                     leafWrap.style.left = "50%";
                     leafWrap.style.transform = "translateX(-50%)";
                     leafWrap.style.bottom = `${bottomPct}%`;
