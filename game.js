@@ -76,9 +76,9 @@ function isGlassComplete(stack) {
 // ---- DIFFICULTY, SCORING, DAILY ----
 
 const DIFFICULTY_PRESETS = {
-    easy: { glasses: 6, emptyGlasses: 2, coveredGlasses: 2, scrambleMoves: 60, multiplier: 1.0, fullCoverProb: 0.10 },
-    medium: { glasses: 8, emptyGlasses: 2, coveredGlasses: 3, scrambleMoves: 90, multiplier: 1.25, fullCoverProb: 0.25 },
-    hard: { glasses: 10, emptyGlasses: 2, coveredGlasses: 4, scrambleMoves: 140, multiplier: 1.5, fullCoverProb: 0.35 }
+    easy:   { glasses: 6,  emptyGlasses: 2, coveredGlasses: 2, scrambleMoves: 60,  multiplier: 1.0,  fullCoverProb: 0.10, minSolveMoves: 6 },
+    medium: { glasses: 8,  emptyGlasses: 2, coveredGlasses: 3, scrambleMoves: 90,  multiplier: 1.25, fullCoverProb: 0.25, minSolveMoves: 10 },
+    hard:   { glasses: 10, emptyGlasses: 2, coveredGlasses: 4, scrambleMoves: 140, multiplier: 1.5,  fullCoverProb: 0.35, minSolveMoves: 14 }
 };
 
 let startTime = null;
@@ -96,109 +96,14 @@ function makeSeededRng(seed) {
     };
 }
 
-// generate level by reverse-scrambling (single-fruit moves), deterministic when seed provided
-function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
-    const { glasses: numGlasses, emptyGlasses } = config;
-    const nonEmpty = numGlasses - emptyGlasses;
-
-    // seeded RNG if seed provided
-    const rng = seed == null ? Math.random : makeSeededRng(seed);
-
-    const shuffleWithRng = (arr) => {
-        for (let i = arr.length - 1; i > 0; i--) {
-            const j = Math.floor(rng() * (i + 1));
-            [arr[i], arr[j]] = [arr[j], arr[i]];
-        }
-        return arr;
-    };
-
-    const buildSolvedState = () => {
-        const pool = shuffleWithRng([...FRUIT_POOL]).slice(0, nonEmpty);
-        const state = pool.map(f => Array.from({ length: GLASS_CAPACITY }, () => f));
-        for (let i = 0; i < emptyGlasses; i++) state.push([]);
-        // pad to requested number of glasses (numGlasses)
-        while (state.length < numGlasses) state.push([]);
-        return state;
-    };
-
-    const isValidPour = (from, to, st) => {
-        if (from === to) return false;
-        if (!st[from] || st[from].length === 0) return false;
-        if (!st[to]) return false;
-        if (st[to].length >= GLASS_CAPACITY) return false;
-        if (st[to].length === 0) return true;
-        return st[to][st[to].length - 1] === st[from][st[from].length - 1];
-    };
-
-    const isAllSolved = (st) => {
-        const used = st.slice(0, numGlasses);
-        return used.every(stack => stack.length === 0 || (stack.length === GLASS_CAPACITY && stack.every(f => f === stack[0])));
-    };
-
-    const performScrambleOnce = (state, movesTarget) => {
-        const total = state.length;
-        let attempts = 0;
-        let moves = 0;
-        const maxAttempts = Math.max(200, movesTarget * 20);
-
-        while (moves < movesTarget && attempts < maxAttempts) {
-            attempts++;
-            const from = Math.floor(rng() * total);
-            const to = Math.floor(rng() * total);
-            if (!isValidPour(from, to, state)) continue;
-
-            // Move exactly one fruit (single-fruit moves mix more reliably)
-            const fruit = state[from].pop();
-            state[to].push(fruit);
-
-            moves++;
-        }
-
-        return state;
-    };
-
-    const maxRetries = 8;
-    let finalState = null;
-
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-        const state = buildSolvedState();
-        // perform extra moves when numGlasses small to ensure mixing
-        const movesTarget = Math.max(scrambleMoves, Math.floor(scrambleMoves * (1 + attempt * 0.25)));
-        performScrambleOnce(state, movesTarget);
-
-        // pad to MAX_GLASSES
-        while (state.length < MAX_GLASSES) state.push([]);
-
-        if (!isAllSolved(state)) {
-            finalState = state;
-            break;
-        }
-
-        // advance RNG a bit between attempts for deterministic seeds
-        if (seed != null) {
-            for (let k = 0; k < (attempt + 1) * 7; k++) rng();
-        }
-    }
-
-    // fallback: force a single swap to guarantee unsolved
-    if (!finalState) {
-        const fb = buildSolvedState();
-        const total = fb.length;
-        outer:
-        for (let i = 0; i < total; i++) {
-            for (let j = 0; j < total; j++) {
-                if (i === j) continue;
-                if (fb[i].length > 0 && fb[j].length < GLASS_CAPACITY) {
-                    fb[j].push(fb[i].pop());
-                    break outer;
-                }
-            }
-        }
-        while (fb.length < MAX_GLASSES) fb.push([]);
-        finalState = fb;
-    }
-
-    return finalState;
+// coverRng used for deterministic cover placement (daily/seeded)
+let coverRng = Math.random;
+function setCoverRng(seed) {
+    coverRng = (seed == null) ? Math.random : makeSeededRng(seed);
+}
+// integer RNG helper using coverRng
+function coverRandInt(min, max) {
+    return Math.floor(coverRng() * (max - min + 1)) + min;
 }
 
 // deterministic daily generator using date seed (YYYY-MM-DD -> int)
@@ -436,15 +341,14 @@ const schedulePositionLeaves = (() => {
     };
 })();
 
-// --- Replace/insert: group-pour scramble + small BFS solver ---
+// --- Hybrid generator + helpers (replace existing generateSolvableLevel and old helpers) ---
 
-// Returns a canonical string for a state (used by solver)
+// Canonical key for solver (only the usedCount first glasses)
 function canonicalStateKey(state, usedCount) {
-    // only consider first usedCount glasses (usually activeLevel.glasses) when canonicalizing
-    return state.slice(0, usedCount).map(stack => stack.join(',')).join('|');
+    return state.slice(0, usedCount).map(stack => stack.join(",")).join("|");
 }
 
-// Get all legal pour moves (from -> to) for current rules (groups)
+// All legal group-pour moves for a state
 function getLegalPours(state) {
     const total = state.length;
     const pours = [];
@@ -453,7 +357,7 @@ function getLegalPours(state) {
         if (!fstack || fstack.length === 0) continue;
         const topFruit = fstack[fstack.length - 1];
 
-        // count top-run length in 'from'
+        // count consecutive identical at top
         let run = 0;
         for (let i = fstack.length - 1; i >= 0 && fstack[i] === topFruit; i--) run++;
 
@@ -472,7 +376,7 @@ function getLegalPours(state) {
     return pours;
 }
 
-// Apply a pour move (mutates a copy and returns it)
+// Apply a pour (on a copy) and return the new state
 function applyPourCopy(state, move) {
     const copy = state.map(s => s.slice());
     for (let i = 0; i < move.count; i++) {
@@ -481,26 +385,27 @@ function applyPourCopy(state, move) {
     return copy;
 }
 
-// Lightweight BFS solver returning minimal moves to solved up to maxDepth (Infinity if not found)
-function findMinSolutionMoves(startState, usedCount, maxDepth = 18) {
+// Check if a state (first usedCount glasses) is solved (only full identical stacks or empty)
+function isStateSolved(st, usedCount) {
+    for (let i = 0; i < usedCount; i++) {
+        const stack = st[i];
+        if (stack.length === 0) continue;
+        if (stack.length !== GLASS_CAPACITY) return false;
+        for (let j = 1; j < stack.length; j++) {
+            if (stack[j] !== stack[0]) return false;
+        }
+    }
+    return true;
+}
+
+// Lightweight BFS solver: returns minimal group-pour moves up to maxDepth (Infinity if not found)
+function findMinSolutionMoves(startState, usedCount, maxDepth = 22) {
     const startKey = canonicalStateKey(startState, usedCount);
-    const queue = [{ state: startState.map(s => s.slice()), key: startKey, depth: 0 }];
+    if (isStateSolved(startState, usedCount)) return 0;
+
+    const queue = [{ state: startState.map(s => s.slice()), depth: 0 }];
     const seen = new Map();
     seen.set(startKey, 0);
-
-    const isSolved = (st) => {
-        for (let i = 0; i < usedCount; i++) {
-            const stack = st[i];
-            if (stack.length === 0) continue;
-            if (stack.length !== GLASS_CAPACITY) return false;
-            for (let j = 1; j < stack.length; j++) {
-                if (stack[j] !== stack[0]) return false;
-            }
-        }
-        return true;
-    };
-
-    if (isSolved(startState)) return 0;
 
     while (queue.length) {
         const node = queue.shift();
@@ -510,37 +415,40 @@ function findMinSolutionMoves(startState, usedCount, maxDepth = 18) {
         for (const mv of pours) {
             const next = applyPourCopy(node.state, mv);
             const key = canonicalStateKey(next, usedCount);
-            if (seen.has(key) && seen.get(key) <= node.depth + 1) continue;
-            if (isSolved(next)) return node.depth + 1;
-            seen.set(key, node.depth + 1);
-            queue.push({ state: next, key, depth: node.depth + 1 });
+            const prev = seen.get(key);
+            if (prev !== undefined && prev <= node.depth + 1) continue;
+
+            const nextDepth = node.depth + 1;
+            if (isStateSolved(next, usedCount)) return nextDepth;
+
+            seen.set(key, nextDepth);
+            queue.push({ state: next, depth: nextDepth });
         }
     }
+
     return Infinity;
 }
 
-// Scramble using group-pours, avoid immediate reversal, and attempt to produce a board with reasonable minimal solution length
+// Reverse-scramble using group-pours. Avoid immediate reversals to improve mixing.
 function performScrambleOnce(state, movesTarget, rng, maxAttempts = 2000) {
     const total = state.length;
     let attempts = 0;
     let moves = 0;
-    let lastMove = null; // {from,to}
+    let lastMove = null;
 
     while (moves < movesTarget && attempts < maxAttempts) {
         attempts++;
         const pours = getLegalPours(state);
-
         if (pours.length === 0) break;
 
-        // Filter out immediate reversals
+        // avoid immediate reversal
         const candidates = pours.filter(p => !(lastMove && p.from === lastMove.to && p.to === lastMove.from));
         const pool = candidates.length ? candidates : pours;
-
-        // pick random pour from pool using rng
         const mv = pool[Math.floor(rng() * pool.length)];
 
-        // perform the pour (group count already correct)
-        for (let k = 0; k < mv.count; k++) state[mv.to].push(state[mv.from].pop());
+        for (let i = 0; i < mv.count; i++) {
+            state[mv.to].push(state[mv.from].pop());
+        }
 
         lastMove = { from: mv.from, to: mv.to };
         moves++;
@@ -549,12 +457,42 @@ function performScrambleOnce(state, movesTarget, rng, maxAttempts = 2000) {
     return state;
 }
 
-// generate level by reverse-scrambling (group-pour moves), deterministic when seed provided
+// Inject small "conflicts" by moving single fruits to wrong stacks to raise difficulty
+function injectConflicts(state, usedCount, rng, injections = 2) {
+    for (let n = 0; n < injections; n++) {
+        const donors = [];
+        for (let i = 0; i < usedCount; i++) if (state[i].length > 0) donors.push(i);
+        if (!donors.length) return state;
+
+        const from = donors[Math.floor(rng() * donors.length)];
+        const fromStack = state[from];
+        const fruit = fromStack[fromStack.length - 1];
+
+        const conflict = [];
+        const neutral = [];
+        for (let j = 0; j < usedCount; j++) {
+            if (j === from) continue;
+            const tstack = state[j];
+            if (tstack.length >= GLASS_CAPACITY) continue;
+            if (tstack.length === 0) neutral.push(j);
+            else if (tstack[tstack.length - 1] !== fruit) conflict.push(j);
+            else neutral.push(j);
+        }
+        if (!conflict.length && !neutral.length) return state;
+
+        const pool = conflict.length ? conflict : neutral;
+        const to = pool[Math.floor(rng() * pool.length)];
+        state[to].push(state[from].pop());
+    }
+    return state;
+}
+
+// Hybrid generator: build solved state, reverse-scramble (group-pours), filter with solver, optionally inject conflicts.
+// Returns an array of length at least numGlasses (padded to MAX_GLASSES).
 function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
     const { glasses: numGlasses, emptyGlasses } = config;
     const nonEmpty = numGlasses - emptyGlasses;
 
-    // seeded RNG if seed provided
     const rng = seed == null ? Math.random : makeSeededRng(seed);
 
     const shuffleWithRng = (arr) => {
@@ -569,54 +507,60 @@ function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
         const pool = shuffleWithRng([...FRUIT_POOL]).slice(0, nonEmpty);
         const state = pool.map(f => Array.from({ length: GLASS_CAPACITY }, () => f));
         for (let i = 0; i < emptyGlasses; i++) state.push([]);
-        // pad to requested number of glasses (numGlasses)
         while (state.length < numGlasses) state.push([]);
         return state;
     };
 
-    const maxRetries = 30;
+    const isAllSolvedFull = (st) => isStateSolved(st, numGlasses);
+
+    const maxRetries = 40;
     let finalState = null;
 
-    // determine reasonable minimal-solve threshold based on board size
+    // difficulty threshold, prefer config._presetName -> DIFFICULTY_PRESETS[...] .minSolveMoves if available
     let minAccept;
-    if (numGlasses >= 10) minAccept = 10;
-    else if (numGlasses >= 8) minAccept = 6;
-    else minAccept = 3;
+    if (typeof config._presetName === "string" && DIFFICULTY_PRESETS[config._presetName]) {
+        minAccept = DIFFICULTY_PRESETS[config._presetName].minSolveMoves || 6;
+    } else if (numGlasses >= 10) minAccept = 12;
+    else if (numGlasses >= 8) minAccept = 8;
+    else minAccept = 5;
+
+    // base solver depth
+    const baseDepth = numGlasses >= 10 ? 26 : (numGlasses >= 8 ? 22 : 18);
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
         const state = buildSolvedState();
-        // perform extra moves when numGlasses small to ensure mixing
-        const movesTarget = Math.max(scrambleMoves, Math.floor(scrambleMoves * (1 + attempt * 0.3)));
 
+        // 1) reverse-scramble
+        const movesTarget = Math.max(scrambleMoves, Math.floor(scrambleMoves * (1 + attempt * 0.25)));
         performScrambleOnce(state, movesTarget, rng);
 
-        // pad to MAX_GLASSES
+        // pad to MAX_GLASSES for UI consistency
         while (state.length < MAX_GLASSES) state.push([]);
 
-        // reject trivial fully-solved states
-        const isAllSolved = (st) => {
-            const used = st.slice(0, numGlasses);
-            return used.every(stack => stack.length === 0 || (stack.length === GLASS_CAPACITY && stack.every(f => f === stack[0])));
-        };
-        if (isAllSolved(state)) {
-            // not a scramble at all, retry
-            continue;
+        // skip accidentally fully-solved
+        if (isAllSolvedFull(state)) continue;
+
+        // 2) estimate difficulty
+        let minSolve = findMinSolutionMoves(state, numGlasses, baseDepth);
+
+        // 3) if too easy or solver couldn't find solution, try injecting conflicts a few times
+        if (minSolve === Infinity || minSolve < minAccept) {
+            for (let inj = 0; inj < 3; inj++) {
+                injectConflicts(state, numGlasses, rng, 1);
+                if (isAllSolvedFull(state)) break;
+                minSolve = findMinSolutionMoves(state, numGlasses, baseDepth);
+                if (minSolve !== Infinity && minSolve >= minAccept) break;
+            }
         }
 
-        // validate scrambles by estimating minimal solution depth
-        const solverDepth = Math.max(10, 18 - Math.floor(attempt / 3)); // gradually relax search depth on later attempts
-        const minSolve = findMinSolutionMoves(state, numGlasses, solverDepth);
-
-        // Accept only if solver finds a solution and it's not too easy
-        if (minSolve !== Infinity && minSolve >= minAccept) {
+        // Accept only if solved within depth and meets threshold
+        if (minSolve !== Infinity && minSolve >= minAccept && !isAllSolvedFull(state)) {
             finalState = state;
             break;
         }
-
-        // otherwise retry (try to get a board with measurable difficulty)
     }
 
-    // fallback: if we couldn't find an acceptable scramble, return a safe-but-unsolved state
+    // fallback: force small unsolve if generation failed
     if (!finalState) {
         const fb = buildSolvedState();
         const total = fb.length;
@@ -783,18 +727,22 @@ function startNewGame(options = {}) {
 
     const mode = options.mode || "scramble";
 
+    // determine levelSeed first so we can set deterministic cover RNG
     if (mode === "daily" && options.date) {
-        glasses = generateDailyLevel(activeLevel, options.date, preset.scrambleMoves);
         levelSeed = dateSeedFromDate(options.date);
+        setCoverRng(levelSeed);
+        glasses = generateSolvableLevel(activeLevel, preset.scrambleMoves, levelSeed);
     } else if (mode === "scramble") {
+        levelSeed = null;
+        setCoverRng(null);
         glasses = generateSolvableLevel(activeLevel, preset.scrambleMoves);
-        levelSeed = null;
     } else {
-        glasses = generateLevel(activeLevel);
         levelSeed = null;
+        setCoverRng(null);
+        glasses = generateLevel(activeLevel);
     }
 
-    // reset covers using preset probability for fullCover
+    // reset covers using preset probability for fullCover (use coverRng for determinism when seeded)
     initialCoveredPositions = {};
     coveredPositions = {};
     const candidateIndices = [];
@@ -812,16 +760,17 @@ function startNewGame(options = {}) {
         if (isGlassComplete(glasses[idx])) continue;
         if (stackLen <= 1) continue;
 
-        const makeFullCover = Math.random() < (preset.fullCoverProb || 0.2);
+        // use coverRng() / coverRandInt(...) so daily/seeded boards are deterministic
+        const makeFullCover = (coverRng() < (preset.fullCoverProb || 0.2));
 
         if (makeFullCover) {
             // require at most the number of fruits present; avoid nonsensical fullCover values
-            const required = randInt(1, Math.max(1, Math.min(stackLen, GLASS_CAPACITY)));
+            const required = coverRandInt(1, Math.max(1, Math.min(stackLen, GLASS_CAPACITY)));
             coveredPositions[idx] = { fullCover: required };
             initialCoveredPositions[idx] = [];
         } else {
             const maxDepth = Math.min(stackLen - 1, GLASS_CAPACITY - 1);
-            const depth = randInt(1, maxDepth);
+            const depth = coverRandInt(1, Math.max(1, maxDepth));
             const topIndex = stackLen - 1;
             const positions = [];
             for (let j = 1; j <= depth; j++) {
