@@ -533,41 +533,107 @@ function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
 
     const isAllSolvedFull = (st) => isStateSolved(st, numGlasses);
 
-    const maxRetries = 80; // was 40 -> allow more attempts to find a true scramble
+    // safety / performance caps
+    const maxRetries = 20;                   // fewer attempts to avoid long spinning
+    const maxScrambleCap = 400;             // cap movesTarget so it doesn't grow unbounded
+    const baseDepth = numGlasses >= 10 ? 24 : (numGlasses >= 8 ? 20 : 14); // moderate BFS depth
 
-    // difficulty threshold (prefer preset)
+    // simple heuristic to avoid expensive BFS when state clearly trivial
+    const cheapHeuristicScore = (st) => {
+        // score = number of stacks that are NOT complete (higher = more mixed)
+        let s = 0;
+        for (let i = 0; i < numGlasses; i++) {
+            const stack = st[i] || [];
+            if (stack.length === 0) { s++; continue; }
+            const top = stack[0];
+            if (stack.length !== GLASS_CAPACITY) s++;
+            else {
+                for (let k = 1; k < stack.length; k++) {
+                    if (stack[k] !== top) { s++; break; }
+                }
+            }
+        }
+        return s;
+    };
+
+    // Force a small destructive move to guarantee the state becomes unsolved
+    const forceDestructiveMove = (st) => {
+        // find any full stack (source) and a target that will create conflict/unsolve
+        const total = Math.min(st.length, numGlasses);
+        const sources = [];
+        for (let i = 0; i < total; i++) if (st[i] && st[i].length > 0) sources.push(i);
+        if (!sources.length) return st;
+
+        for (const from of shuffleWithRng(sources.slice())) {
+            const fruit = st[from][st[from].length - 1];
+            // prefer targets that are non-empty and have a different top
+            const targets = [];
+            const empties = [];
+            for (let j = 0; j < total; j++) {
+                if (j === from) continue;
+                const t = st[j];
+                if (!t) continue;
+                if (t.length >= GLASS_CAPACITY) continue;
+                if (t.length === 0) empties.push(j);
+                else if (t[t.length - 1] !== fruit) targets.push(j);
+            }
+            const pool = targets.length ? targets : empties;
+            if (pool.length) {
+                const to = pool[Math.floor(rng() * pool.length)];
+                // move a single fruit
+                st[to].push(st[from].pop());
+                return st;
+            }
+        }
+        return st;
+    };
+
+    let finalState = null;
+
+    // difficulty threshold (use preset if present)
     let minAccept;
     if (typeof config._presetName === "string" && DIFFICULTY_PRESETS[config._presetName]) {
         minAccept = DIFFICULTY_PRESETS[config._presetName].minSolveMoves || 6;
-    } else if (numGlasses >= 10) minAccept = 16;
-    else if (numGlasses >= 8) minAccept = 12;
-    else minAccept = 6;
-
-    const baseDepth = numGlasses >= 10 ? 32 : (numGlasses >= 8 ? 26 : 20); // increase BFS depth
+    } else if (numGlasses >= 10) minAccept = 14;
+    else if (numGlasses >= 8) minAccept = 10;
+    else minAccept = 5;
 
     console.info("[gen] start generateSolvableLevel", { numGlasses, emptyGlasses, seed, minAccept, baseDepth });
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
         const state = buildSolvedState();
 
-        const movesTarget = Math.max(scrambleMoves, Math.floor(scrambleMoves * (1 + attempt * 0.25)));
+        // compute movesTarget but keep it capped
+        const movesTarget = Math.min(Math.max(scrambleMoves, Math.floor(scrambleMoves * (1 + attempt * 0.2))), maxScrambleCap);
         performScrambleOnce(state, movesTarget, rng);
+
+        // if still fully solved, force a destructive move instead of blindly retrying many times
+        if (isAllSolvedFull(state)) {
+            forceDestructiveMove(state);
+        }
+
         while (state.length < MAX_GLASSES) state.push([]);
 
-        if (isAllSolvedFull(state)) {
-            console.debug(`[gen] attempt ${attempt}: state remained fully solved -> retry`);
+        // cheap heuristic: skip expensive BFS when clearly trivial
+        const h = cheapHeuristicScore(state);
+        if (h < Math.max(1, Math.floor(numGlasses / 3))) {
+            console.debug(`[gen] attempt ${attempt}: cheap-heuristic rejected (h=${h})`);
             continue;
         }
 
+        // run BFS solver with moderate depth
         let minSolve = findMinSolutionMoves(state, numGlasses, baseDepth);
-        console.debug(`[gen] attempt ${attempt}: movesTarget=${movesTarget}, initial minSolve=${minSolve}`);
+        console.debug(`[gen] attempt ${attempt}: movesTarget=${movesTarget}, initial minSolve=${minSolve}, heuristic=${h}`);
 
+        // if too easy or solver didn't find, try a few targeted conflict injections (bounded)
         if (minSolve === Infinity || minSolve < minAccept) {
-            // try injecting conflicts more times to raise difficulty
-            for (let inj = 0; inj < 6; inj++) { // was 3 -> now 6
-                injectConflicts(state, numGlasses, rng, 1);
-                if (isAllSolvedFull(state)) break;
-                minSolve = findMinSolutionMoves(state, numGlasses, baseDepth);
+            for (let inj = 0; inj < 4; inj++) {
+                injectConflicts(state, numGlasses, rng, 1 + (inj % 2));
+                // quick heuristic after injection
+                const h2 = cheapHeuristicScore(state);
+                if (h2 < 1) continue;
+                minSolve = findMinSolutionMoves(state, numGlasses, Math.max(12, Math.floor(baseDepth / 1.5)));
+                console.debug(`[gen] attempt ${attempt} inj ${inj}: minSolve=${minSolve}, heuristic=${h2}`);
                 if (minSolve !== Infinity && minSolve >= minAccept) break;
             }
         }
@@ -581,90 +647,16 @@ function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
         console.debug(`[gen] attempt ${attempt} rejected`, { minSolve });
     }
 
-    // Replace the fallback block inside `generateSolvableLevel` with this more robust fallback.
-    // It tries several stronger reverse-scrambles + conflict injections and, as a last resort,
-    // performs random legal group-pours until the board is no longer trivially solved.
-
-    // fallback: stronger attempt to produce a non-trivial unsolved state
+    // fallback: quick, small unsolve to avoid long spinner (fast and deterministic-ish)
     if (!finalState) {
-        console.warn("[gen] entering robust fallback generation");
-        const MAX_FALLBACK_ATTEMPTS = 6;
-        for (let fbAttempt = 0; fbAttempt < MAX_FALLBACK_ATTEMPTS && !finalState; fbAttempt++) {
-            const fb = buildSolvedState();
-
-            // do a moderate reverse-scramble using group-pours
-            const scrambleMovesFallback = 60 + fbAttempt * 30;
-            performScrambleOnce(fb, scrambleMovesFallback, rng);
-
-            // inject a couple of conflicts to break easy solves
-            injectConflicts(fb, numGlasses, rng, 2 + fbAttempt);
-
-            // pad to UI size
-            while (fb.length < MAX_GLASSES) fb.push([]);
-
-            // check it's not fully solved and has at least minimal complexity
-            if (!isAllSolvedFull(fb)) {
-                const fbMinSolve = findMinSolutionMoves(fb, numGlasses, 12);
-                if (fbMinSolve !== Infinity && fbMinSolve > 1) {
-                    finalState = fb;
-                    console.info("[gen] fallback accepted (scramble+inject)", { fbAttempt, fbMinSolve, scrambleMovesFallback });
-                    break;
-                }
-            }
+        console.warn("[gen] no acceptable scramble found — using quick fallback unsolve");
+        const fb = buildSolvedState();
+        // perform a few deterministic single-fruit moves to introduce mixing
+        for (let i = 0; i < Math.max(2, Math.floor(scrambleMoves / 40)); i++) {
+            forceDestructiveMove(fb);
         }
-
-        // last-resort: perform repeated random legal group-pours until state is unsolved or attempts exhausted
-        if (!finalState) {
-            const fb2 = buildSolvedState();
-            let attempts = 0;
-            const maxAttempts = 600;
-            while (isAllSolvedFull(fb2) && attempts < maxAttempts) {
-                const pours = getLegalPours(fb2);
-                if (!pours.length) break;
-                const mv = pours[Math.floor(rng() * pours.length)];
-
-                // choose a count biased to small moves, avoid moving entire full stack into empty jar
-                let cnt = 1;
-                if (mv.count > 1) {
-                    const r = rng();
-                    if (r < 0.7) cnt = 1;
-                    else if (r < 0.9) cnt = Math.max(1, Math.floor(mv.count / 2));
-                    else cnt = mv.count;
-                    if (fb2[mv.to].length === 0 && cnt === mv.count && mv.count > 1) cnt = 1;
-                }
-
-                for (let i = 0; i < cnt; i++) {
-                    fb2[mv.to].push(fb2[mv.from].pop());
-                }
-
-                // small random conflict occasionally
-                if (attempts % 50 === 0) injectConflicts(fb2, numGlasses, rng, 1);
-
-                attempts++;
-            }
-
-            while (fb2.length < MAX_GLASSES) fb2.push([]);
-            finalState = fb2;
-            console.info("[gen] fallback final produced board after random pours", { attempts });
-        }
-
-        if (!finalState) {
-            // absolute safety: return the simple forced-unsolve (shouldn't happen)
-            const fb = buildSolvedState();
-            outer:
-            for (let i = 0; i < fb.length; i++) {
-                for (let j = 0; j < fb.length; j++) {
-                    if (i === j) continue;
-                    if (fb[i].length > 0 && fb[j].length < GLASS_CAPACITY) {
-                        fb[j].push(fb[i].pop());
-                        break outer;
-                    }
-                }
-            }
-            while (fb.length < MAX_GLASSES) fb.push([]);
-            finalState = fb;
-            console.info("[gen] fallback absolute safety used");
-        }
+        while (fb.length < MAX_GLASSES) fb.push([]);
+        finalState = fb;
     }
 
     return finalState;
