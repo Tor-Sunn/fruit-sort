@@ -516,7 +516,7 @@ function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
     const maxRetries = 40;
     let finalState = null;
 
-    // difficulty threshold, prefer config._presetName -> DIFFICULTY_PRESETS[...] .minSolveMoves if available
+    // difficulty threshold (prefer preset)
     let minAccept;
     if (typeof config._presetName === "string" && DIFFICULTY_PRESETS[config._presetName]) {
         minAccept = DIFFICULTY_PRESETS[config._presetName].minSolveMoves || 6;
@@ -524,44 +524,47 @@ function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
     else if (numGlasses >= 8) minAccept = 8;
     else minAccept = 5;
 
-    // base solver depth
     const baseDepth = numGlasses >= 10 ? 26 : (numGlasses >= 8 ? 22 : 18);
+
+    console.info("[gen] start generateSolvableLevel", { numGlasses, emptyGlasses, seed, minAccept, baseDepth });
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
         const state = buildSolvedState();
 
-        // 1) reverse-scramble
         const movesTarget = Math.max(scrambleMoves, Math.floor(scrambleMoves * (1 + attempt * 0.25)));
         performScrambleOnce(state, movesTarget, rng);
-
-        // pad to MAX_GLASSES for UI consistency
         while (state.length < MAX_GLASSES) state.push([]);
 
-        // skip accidentally fully-solved
-        if (isAllSolvedFull(state)) continue;
+        if (isAllSolvedFull(state)) {
+            console.debug(`[gen] attempt ${attempt}: state remained fully solved -> retry`);
+            continue;
+        }
 
-        // 2) estimate difficulty
         let minSolve = findMinSolutionMoves(state, numGlasses, baseDepth);
+        console.debug(`[gen] attempt ${attempt}: movesTarget=${movesTarget}, initial minSolve=${minSolve}`);
 
-        // 3) if too easy or solver couldn't find solution, try injecting conflicts a few times
         if (minSolve === Infinity || minSolve < minAccept) {
+            // try injecting conflicts a few times to raise difficulty
             for (let inj = 0; inj < 3; inj++) {
                 injectConflicts(state, numGlasses, rng, 1);
                 if (isAllSolvedFull(state)) break;
                 minSolve = findMinSolutionMoves(state, numGlasses, baseDepth);
+                console.debug(`[gen] attempt ${attempt} inj ${inj}: minSolve=${minSolve}`);
                 if (minSolve !== Infinity && minSolve >= minAccept) break;
             }
         }
 
-        // Accept only if solved within depth and meets threshold
         if (minSolve !== Infinity && minSolve >= minAccept && !isAllSolvedFull(state)) {
             finalState = state;
+            console.info(`[gen] ACCEPTED on attempt ${attempt}`, { minSolve, movesTarget });
             break;
         }
+
+        console.debug(`[gen] attempt ${attempt} rejected`, { minSolve });
     }
 
-    // fallback: force small unsolve if generation failed
     if (!finalState) {
+        console.warn("[gen] no acceptable scramble found — using fallback unsolve");
         const fb = buildSolvedState();
         const total = fb.length;
         outer:
@@ -576,6 +579,7 @@ function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
         }
         while (fb.length < MAX_GLASSES) fb.push([]);
         finalState = fb;
+        console.info("[gen] fallback produced board (likely trivial)");
     }
 
     return finalState;
