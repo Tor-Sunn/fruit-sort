@@ -1,236 +1,82 @@
-/* === Layout & base === */
-
-*,
-*::before,
-*::after {
-    box-sizing: border-box;
-}
-
 body {
-    margin: 0;
+    background: #0f172a;
+    color: #e2e8f0;
+    font-family: system-ui, sans-serif;
     padding: 20px;
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    background: #020617;
-    color: #e5e7eb;
     display: flex;
     justify-content: center;
 }
 
-.fm-wrapper {
-    width: 100%;
-    max-width: 1100px;
+.topbar {
+    max-width: 800px;
+    margin-bottom: 20px;
 }
 
-/* === Header / top === */
-
-.fm-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    margin-bottom: 8px;
-}
-
-.fm-title {
+h1 {
     margin: 0;
     font-size: 28px;
 }
 
-.fm-sub {
-    margin: 2px 0 0;
-    font-size: 13px;
-    color: #9ca3af;
-}
-
-.fm-info {
-    display: flex;
-    align-items: center;
-    gap: 14px;
+.subtitle {
     font-size: 14px;
+    opacity: 0.8;
+    margin-top: 8px;
 }
 
-.fm-btn-primary {
-    padding: 6px 16px;
-    border-radius: 999px;
+.stats {
+    margin-top: 6px;
+    display: flex;
+    gap: 20px;
+    align-items: center;
+}
+
+.btn {
+    background: #16a34a;
     border: none;
-    background: #22c55e;
-    color: #022c22;
-    font-weight: 600;
-    cursor: pointer;
-    box-shadow: 0 6px 18px rgba(16, 185, 129, 0.32);
-}
-
-    .fm-btn-primary:hover {
-        background: #16a34a;
-    }
-
-/* === Controls / help === */
-
-.fm-controls {
-    margin-bottom: 8px;
-}
-
-.fm-help {
-    margin: 0;
-    font-size: 13px;
-    color: #9ca3af;
-}
-
-.fm-status {
-    min-height: 20px;
-    font-size: 14px;
-    margin-bottom: 10px;
-    color: #facc15;
-}
-
-/* === Board === */
-
-.fm-board-wrap {
-    display: flex;
-    justify-content: center;
-}
-
-/* 9×9 grid */
-.fm-grid {
-    display: grid;
-    grid-template-columns: repeat(9, 1fr);
-    gap: 4px;
-    background: #020617;
-    padding: 4px;
-    border-radius: 12px;
-}
-
-/* Each cell is a square using aspect-ratio */
-.fm-cell {
-    position: relative;
-    background: radial-gradient(circle at 30% 20%, #1e293b, #020617 70%);
-    border-radius: 10px;
-    overflow: hidden;
-    cursor: pointer;
-    aspect-ratio: 1 / 1;
-    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.7);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
-}
-
-    .fm-cell:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.9);
-        background: radial-gradient(circle at 30% 15%, #111827, #020617 75%);
-    }
-
-.fm-cell--selected {
-    outline: 2px solid #22c55e;
-    outline-offset: -2px;
-    box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.45), 0 16px 34px rgba(15, 23, 42, 0.95);
-}
-
-/* === Fruit === */
-
-.fm-fruit {
-    width: 80%;
-    height: 80%;
-    object-fit: contain;
-    pointer-events: none;
-    user-select: none;
-    transition: transform 120ms ease, opacity 120ms ease;
-}
-
-.fm-fruit--hidden {
-    opacity: 0.25;
-}
-
-/* === Leaves overlay === */
-
-.fm-leaf-wrap {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    pointer-events: none;
-}
-
-.fm-leaf {
-    width: 90%;
-    height: 90%;
-    object-fit: contain;
-    filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.35));
-}
-
-.fm-leaf-count {
-    position: absolute;
-    bottom: 16%;
-    right: 18%;
-    transform: translate(50%, 50%);
-    background: rgba(0, 0, 0, 0.7);
-    color: #f9fafb;
-    font-size: 0.8rem;
+    padding: 6px 14px;
     border-radius: 999px;
-    padding: 1px 6px;
+    cursor: pointer;
     font-weight: 600;
 }
 
-/* small “pop” when a leaf layer is removed */
-.fm-leaf-hit {
-    animation: fm-leaf-pop 250ms ease-out;
+.board {
+    margin-top: 20px;
+    display: grid;
+    grid-template-columns: repeat(9, 64px);
+    grid-template-rows: repeat(9, 64px);
+    gap: 6px;
 }
 
-@keyframes fm-leaf-pop {
-    0% {
-        transform: scale(1);
-        opacity: 1;
-    }
-
-    70% {
-        transform: scale(1.12);
-        opacity: 1;
-    }
-
-    100% {
-        transform: scale(1);
-        opacity: 1;
-    }
+.cell {
+    width: 64px;
+    height: 64px;
+    background: #1e293b;
+    border-radius: 10px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: relative;
 }
 
-/* === Anim when merge created === */
-
-.fm-cell--merged {
-    animation: fm-merged 220ms ease-out;
-}
-
-@keyframes fm-merged {
-    0% {
-        transform: scale(0.2);
-        opacity: 0;
+    .cell img {
+        width: 52px;
+        height: 52px;
+        user-select: none;
     }
 
-    70% {
-        transform: scale(1.1);
-        opacity: 1;
+    .cell.leaf::after {
+        content: attr(data-hits);
+        position: absolute;
+        bottom: 4px;
+        right: 6px;
+        color: white;
+        font-size: 12px;
+        background: rgba(0,0,0,0.5);
+        padding: 2px 5px;
+        border-radius: 6px;
     }
 
-    100% {
-        transform: scale(1);
-        opacity: 1;
+    .cell.selected {
+        outline: 3px solid #22c55e;
+        outline-offset: -4px;
     }
-}
-
-/* === Responsive === */
-
-@media (max-width: 900px) {
-    body {
-        padding: 12px;
-    }
-
-    .fm-header {
-        flex-direction: column;
-        align-items: flex-start;
-    }
-
-    .fm-grid {
-        width: 100%;
-    }
-}

@@ -3,39 +3,26 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Fruit Merge Grid</title>
+    <title>Fruit Merge</title>
     <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-    <div class="fm-wrapper">
-        <header class="fm-header">
-            <div>
-                <h1 class="fm-title">🍓 Fruit Merge</h1>
-                <p class="fm-sub">Prototype – 9×9 grid, merge & leaves</p>
-            </div>
 
-            <div class="fm-info">
-                <div>Score: <span id="fm-score">0</span></div>
-                <div>Moves: <span id="fm-moves">0</span></div>
-                <button id="fm-newgame" class="fm-btn-primary">New game</button>
-            </div>
-        </header>
-
-        <section class="fm-controls">
-            <p class="fm-help">
-                Match <strong>two identical fruits</strong> in a straight line
-                (horizontal, vertical or diagonal) with <strong>no fruits in between</strong>.
-                They merge into a higher fruit. Merge next to leaves to remove them.
-            </p>
-        </section>
-
-        <div id="fm-status" class="fm-status"></div>
-
-        <main class="fm-board-wrap">
-            <div id="fm-grid" class="fm-grid"><!-- filled by JS --></div>
-        </main>
+    <div class="topbar">
+        <h1>🍓 Fruit Merge</h1>
+        <div class="stats">
+            <span id="score">Score: 0</span>
+            <span id="moves">Moves: 0</span>
+            <button id="newgame" class="btn">New game</button>
+        </div>
+        <p class="subtitle">
+            Match <strong>two identical fruits</strong> in a straight line with no fruit between.
+            They merge into a higher fruit. Empty cells fill from top. Game over when the top row is full.
+        </p>
     </div>
 
-    <script src="game.js" defer></script>
+    <div id="board" class="board"></div>
+
+    <script src="game.js"></script>
 </body>
 </html>
