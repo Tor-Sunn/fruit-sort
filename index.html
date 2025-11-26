@@ -5,14 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Fruit Sort</title>
 
-    <!-- Main stylesheet -->
     <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 
     <div class="fs-wrapper">
 
-        <!-- Title -->
         <h1 class="fs-title">🍓 Fruit Sort</h1>
         <p class="fs-sub">Prototype – Up to 18 glasses</p>
 
@@ -20,46 +18,41 @@
         <div class="fs-topbar">
 
             <!-- Moves -->
-            <div>
-                Moves: <span id="fs-moves">0</span>
-            </div>
+            <div>Moves: <span id="fs-moves">0</span></div>
 
             <!-- Status text -->
             <div id="fs-status"></div>
 
-            <!-- Difficulty settings -->
-            <div class="fs-controls">
+            <!-- Difficulty controls -->
+            <div class="fs-controls" style="display:flex; align-items:center; gap:12px;">
 
-                <label for="fs-difficulty" class="fs-label">
+                <label for="fs-difficulty" style="color:var(--muted); font-size:0.9rem;">
                     Difficulty
                 </label>
 
-                <select id="fs-difficulty" class="fs-select">
+                <select id="fs-difficulty">
                     <option value="easy">Easy</option>
                     <option value="medium" selected>Medium</option>
                     <option value="hard">Hard</option>
                 </select>
 
-                <label class="fs-fast-hard-check">
+                <label style="display:flex; align-items:center; gap:6px; color:var(--muted); font-size:0.9rem;">
                     <input type="checkbox" id="fs-fast-hard" />
                     Fast-hard
                 </label>
 
             </div>
 
-            <!-- New board button -->
-            <button id="fs-reset" class="fs-button">New board</button>
+            <button id="fs-reset">New board</button>
         </div>
 
-        <!-- Scramble buttons generated here by JS -->
-        <div id="fs-scramble-bar" class="fs-scramble-bar"></div>
-
-        <!-- GAME BOARD RENDER TARGET -->
+        <!-- MODE BAR + SCRAMBLE BAR (Auto-generated) -->
+        <!-- game.js legger inn disse automatisk ved initGeneratorButtons() -->
+        <!-- GAME BOARD -->
         <div id="fs-board" class="fs-board"></div>
 
     </div>
 
-    <!-- Game engine -->
     <script src="game.js"></script>
 
 </body>
