@@ -1,6 +1,8 @@
-/* --- Layout --- */
+/* === Layout & base === */
 
-* {
+*,
+*::before,
+*::after {
     box-sizing: border-box;
 }
 
@@ -8,305 +10,227 @@ body {
     margin: 0;
     padding: 20px;
     font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    background: #0f172a;
+    background: #020617;
     color: #e5e7eb;
     display: flex;
     justify-content: center;
 }
 
-.fs-wrapper {
+.fm-wrapper {
     width: 100%;
-    max-width: 1400px;
+    max-width: 1100px;
 }
 
-.fs-title {
-    margin: 0 0 4px;
+/* === Header / top === */
+
+.fm-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 8px;
+}
+
+.fm-title {
+    margin: 0;
     font-size: 28px;
 }
 
-.fs-sub {
-    margin: 0 0 16px;
+.fm-sub {
+    margin: 2px 0 0;
+    font-size: 13px;
     color: #9ca3af;
-    font-size: 14px;
 }
 
-.fs-topbar {
+.fm-info {
     display: flex;
     align-items: center;
-    gap: 12px;
-    margin-bottom: 16px;
-    flex-wrap: wrap;
-}
-
-#fs-status {
-    flex: 1;
-    min-height: 20px;
+    gap: 14px;
     font-size: 14px;
-    color: #fbbf24;
 }
 
-#fs-reset {
-    padding: 6px 14px;
+.fm-btn-primary {
+    padding: 6px 16px;
     border-radius: 999px;
     border: none;
     background: #22c55e;
     color: #022c22;
     font-weight: 600;
     cursor: pointer;
+    box-shadow: 0 6px 18px rgba(16, 185, 129, 0.32);
 }
 
-/* --- Board --- */
+    .fm-btn-primary:hover {
+        background: #16a34a;
+    }
 
-.fs-board {
+/* === Controls / help === */
+
+.fm-controls {
+    margin-bottom: 8px;
+}
+
+.fm-help {
+    margin: 0;
+    font-size: 13px;
+    color: #9ca3af;
+}
+
+.fm-status {
+    min-height: 20px;
+    font-size: 14px;
+    margin-bottom: 10px;
+    color: #facc15;
+}
+
+/* === Board === */
+
+.fm-board-wrap {
+    display: flex;
+    justify-content: center;
+}
+
+/* 9×9 grid */
+.fm-grid {
     display: grid;
-    grid-template-columns: repeat(6, minmax(180px, 1fr));
-    gap: 20px;
-    justify-content: center;
-    align-items: start;
-    margin-top: 96px;
-}
-
-/* --- Glass --- */
-
-.fs-glass {
-    position: relative;
-    width: 100%;
-    max-width: 280px;
-    aspect-ratio: 3 / 5;
-    margin-inline: auto;
-    display: flex;
-    align-items: flex-end;
-    justify-content: center;
-    cursor: pointer;
-    transform-origin: center bottom;
-    transition: transform 0.12s ease, box-shadow 0.12s ease;
-}
-
-.fs-glass--unused {
-    visibility: hidden;
-}
-
-.fs-glass:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 20px rgba(0,0,0,0.35);
-}
-
-/* Selected glass */
-
-.fs-glass--selected {
-    transform: translateY(-8px) scale(1.02);
-    transition: transform 180ms cubic-bezier(.2,.9,.2,1), box-shadow 180ms ease;
-    box-shadow: 0 18px 40px rgba(0,0,0,0.45), 0 6px 20px rgba(249,115,22,0.06);
-    border-radius: 12px;
-    animation: selected-pulse 2000ms ease-in-out infinite;
-}
-
-    .fs-glass--selected .fs-jar-inner-img {
-        filter: drop-shadow(0 6px 18px rgba(249,115,22,0.08));
-        transition: filter 180ms ease;
-        z-index: 2;
-    }
-
-    .fs-glass--selected .fs-fruit-stack {
-        z-index: 6;
-    }
-
-    .fs-glass--selected .fs-fruit {
-        animation: fruit-bob 1200ms ease-in-out infinite;
-        animation-delay: calc(var(--fruit-index, 0) * 60ms);
-        position: relative;
-        z-index: 7;
-    }
-
-.fs-glass:focus,
-.fs-glass:focus-visible {
-    outline: none !important;
-    box-shadow: none !important;
-}
-
-/* Jar image */
-
-.fs-jar-inner-img {
-    position: absolute;
-    left: 50%;
-    bottom: 4%;
-    width: 92%;
-    height: auto;
-    transform: translateX(-50%);
-    object-fit: contain;
-    pointer-events: none;
-    z-index: 0;
-    opacity: 0.98;
-}
-
-/* Fruit stack */
-
-.fs-fruit-stack {
-    position: absolute;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 46%;
-    height: 58%;
-    bottom: 10%;
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-end;
-    align-items: center;
+    grid-template-columns: repeat(9, 1fr);
     gap: 4px;
-    z-index: 1;
+    background: #020617;
+    padding: 4px;
+    border-radius: 12px;
 }
 
-.fs-fruit {
-    display: block;
-    max-width: 100%;
-    max-height: 36%;
-    object-fit: contain;
-    object-position: center bottom;
-    pointer-events: none;
+/* Each cell is a square using aspect-ratio */
+.fm-cell {
     position: relative;
+    background: radial-gradient(circle at 30% 20%, #1e293b, #020617 70%);
+    border-radius: 10px;
+    overflow: hidden;
+    cursor: pointer;
+    aspect-ratio: 1 / 1;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
 }
 
-/* --- Leaf Overlay (modern system) --- */
+    .fm-cell:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.9);
+        background: radial-gradient(circle at 30% 15%, #111827, #020617 75%);
+    }
 
-.fs-leaf-wrap {
-    position: absolute;
-    z-index: 8;
-    pointer-events: none;
-    transform-origin: center center;
-    display: block;
+.fm-cell--selected {
+    outline: 2px solid #22c55e;
+    outline-offset: -2px;
+    box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.45), 0 16px 34px rgba(15, 23, 42, 0.95);
 }
 
-.fs-leaf-img {
-    width: 100%;
-    height: 100%;
+/* === Fruit === */
+
+.fm-fruit {
+    width: 80%;
+    height: 80%;
     object-fit: contain;
-    display: block;
     pointer-events: none;
+    user-select: none;
+    transition: transform 120ms ease, opacity 120ms ease;
 }
 
-.fs-leaf-q {
+.fm-fruit--hidden {
+    opacity: 0.25;
+}
+
+/* === Leaves overlay === */
+
+.fm-leaf-wrap {
     position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    display: inline-block;
-    width: 1.6em;
-    height: 1.6em;
-    line-height: 1.6em;
-    border-radius: 999px;
-    background: rgba(0,0,0,0.55);
-    color: #fff;
-    font-weight: 700;
-    font-size: 0.95em;
-    text-align: center;
-    box-shadow: 0 4px 10px rgba(0,0,0,0.35);
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     pointer-events: none;
 }
 
-/* Hidden leaf (when removed) */
-.fs-leaf--hidden {
-    opacity: 0;
-    transform: scale(0.95);
-    transition: opacity 240ms ease, transform 240ms ease;
+.fm-leaf {
+    width: 90%;
+    height: 90%;
+    object-fit: contain;
+    filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.35));
 }
 
-/* --- Animations --- */
+.fm-leaf-count {
+    position: absolute;
+    bottom: 16%;
+    right: 18%;
+    transform: translate(50%, 50%);
+    background: rgba(0, 0, 0, 0.7);
+    color: #f9fafb;
+    font-size: 0.8rem;
+    border-radius: 999px;
+    padding: 1px 6px;
+    font-weight: 600;
+}
 
-@keyframes selected-pulse {
+/* small “pop” when a leaf layer is removed */
+.fm-leaf-hit {
+    animation: fm-leaf-pop 250ms ease-out;
+}
+
+@keyframes fm-leaf-pop {
     0% {
-        box-shadow: 0 14px 32px rgba(0,0,0,0.44), 0 4px 12px rgba(249,115,22,0.04);
+        transform: scale(1);
+        opacity: 1;
     }
 
-    50% {
-        box-shadow: 0 22px 48px rgba(0,0,0,0.48), 0 8px 26px rgba(249,115,22,0.08);
-        transform: translateY(-9px) scale(1.025);
+    70% {
+        transform: scale(1.12);
+        opacity: 1;
     }
 
     100% {
-        box-shadow: 0 14px 32px rgba(0,0,0,0.44), 0 4px 12px rgba(249,115,22,0.04);
-        transform: translateY(-8px) scale(1.02);
+        transform: scale(1);
+        opacity: 1;
     }
 }
 
-@keyframes fruit-bob {
+/* === Anim when merge created === */
+
+.fm-cell--merged {
+    animation: fm-merged 220ms ease-out;
+}
+
+@keyframes fm-merged {
     0% {
-        transform: translateY(0);
+        transform: scale(0.2);
+        opacity: 0;
     }
 
-    50% {
-        transform: translateY(-6px);
+    70% {
+        transform: scale(1.1);
+        opacity: 1;
     }
 
     100% {
-        transform: translateY(0);
+        transform: scale(1);
+        opacity: 1;
     }
 }
 
-/* --- Responsive --- */
+/* === Responsive === */
 
-@media (max-width: 1200px) {
-    .fs-board {
-        grid-template-columns: repeat(6, minmax(140px, 1fr));
+@media (max-width: 900px) {
+    body {
+        padding: 12px;
     }
 
-    .fs-glass {
-        max-width: 240px;
+    .fm-header {
+        flex-direction: column;
+        align-items: flex-start;
     }
 
-    .fs-fruit-stack {
-        width: 50%;
-        height: 56%;
+    .fm-grid {
+        width: 100%;
     }
-
-    .fs-fruit {
-        max-height: 34%;
-    }
-}
-
-@media (max-width: 700px) {
-    .fs-board {
-        grid-template-columns: repeat(3, 1fr);
-    }
-
-    .fs-glass {
-        max-width: 160px;
-    }
-
-    .fs-fruit-stack {
-        width: 52%;
-        height: 52%;
-    }
-
-    .fs-fruit {
-        max-height: 31%;
-    }
-    .fs-diff-buttons {
-        display: flex;
-        gap: 8px;
-        margin-left: 20px;
-    }
-
-    .fs-diff-btn {
-        padding: 6px 14px;
-        border-radius: 6px;
-        background: #1e293b;
-        border: 1px solid #334155;
-        color: #e2e8f0;
-        font-size: 0.85rem;
-        cursor: pointer;
-        transition: background 0.15s, border-color 0.15s;
-    }
-
-        .fs-diff-btn:hover {
-            background: #334155;
-            border-color: #475569;
-        }
-
-    .fs-diff-active {
-        background: #0ea5e9;
-        border-color: #0284c7;
-        color: #0f172a;
-        font-weight: 600;
-    }
-
 }

@@ -3,29 +3,39 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Fruit Sort</title>
-
+    <title>Fruit Merge Grid</title>
     <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+    <div class="fm-wrapper">
+        <header class="fm-header">
+            <div>
+                <h1 class="fm-title">🍓 Fruit Merge</h1>
+                <p class="fm-sub">Prototype – 9×9 grid, merge & leaves</p>
+            </div>
 
-    <div class="fs-wrapper">
-        <h1 class="fs-title">🍓 Fruit Sort</h1>
-        <p class="fs-sub">Prototype – Up to 18 glasses</p>
+            <div class="fm-info">
+                <div>Score: <span id="fm-score">0</span></div>
+                <div>Moves: <span id="fm-moves">0</span></div>
+                <button id="fm-newgame" class="fm-btn-primary">New game</button>
+            </div>
+        </header>
 
-        <!-- TOP BAR -->
-        <div class="fs-topbar">
-            <div>Moves: <span id="fs-moves">0</span></div>
-            <div id="fs-status"></div>
+        <section class="fm-controls">
+            <p class="fm-help">
+                Match <strong>two identical fruits</strong> in a straight line
+                (horizontal, vertical or diagonal) with <strong>no fruits in between</strong>.
+                They merge into a higher fruit. Merge next to leaves to remove them.
+            </p>
+        </section>
 
-            <button id="fs-reset">New board</button>
-        </div>
+        <div id="fm-status" class="fm-status"></div>
 
-        <!-- Scramble-knappene (Casual / Challenging / Brutal / Insane) blir laget i JS -->
-        <!-- GAME BOARD -->
-        <div id="fs-board" class="fs-board"></div>
+        <main class="fm-board-wrap">
+            <div id="fm-grid" class="fm-grid"><!-- filled by JS --></div>
+        </main>
     </div>
 
-    <script src="game.js"></script>
+    <script src="game.js" defer></script>
 </body>
 </html>
