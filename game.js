@@ -837,10 +837,9 @@ window.addEventListener("resize", () => schedulePositionLeaves());
 
 // ---- START / RESET ----
 
-// Replace default start behavior with enhanced generator. Call with options:
-// startNewGame({ difficulty: "easy"|"medium"|"hard", mode: "scramble"|"random"|"daily", date: Date })
+// Replace startNewGame to enable fast generator automatically for hard difficulty unless explicitly overridden
 function startNewGame(options = {}) {
-    moves = 0;
+    moves =0;
     movesEl.textContent = "0";
     statusEl.textContent = "";
 
@@ -854,7 +853,8 @@ function startNewGame(options = {}) {
     };
 
     const mode = options.mode || "scramble";
-    const fastHard = !!options.fastHard;
+    // If options.fastHard is explicitly provided, use it; otherwise enable fast generator for hard difficulty
+    const fastHard = (typeof options.fastHard !== 'undefined') ? !!options.fastHard : (difficulty === 'hard');
 
     // determine levelSeed first so we can set deterministic cover RNG
     if (mode === "daily" && options.date) {
@@ -877,22 +877,22 @@ function startNewGame(options = {}) {
     initialCoveredPositions = {};
     coveredPositions = {};
     const candidateIndices = [];
-    for (let i = 0; i < activeLevel.glasses; i++) {
-        if (glasses[i] && glasses[i].length > 0) candidateIndices.push(i);
+    for (let i =0; i < activeLevel.glasses; i++) {
+        if (glasses[i] && glasses[i].length >0) candidateIndices.push(i);
     }
     shuffle(candidateIndices);
 
-    const toCover = Math.min(activeLevel.coveredGlasses || 0, candidateIndices.length);
-    for (let k = 0; k < toCover; k++) {
+    const toCover = Math.min(activeLevel.coveredGlasses ||0, candidateIndices.length);
+    for (let k =0; k < toCover; k++) {
         const idx = candidateIndices[k];
         const stackLen = glasses[idx].length;
 
         // Skip covering already-complete jars — don't hide jars that are already fully sorted.
         if (isGlassComplete(glasses[idx])) continue;
-        if (stackLen <= 1) continue;
+        if (stackLen <=1) continue;
 
         // use coverRng() / coverRandInt(...) so daily/seeded boards are deterministic
-        const makeFullCover = (coverRng() < (preset.fullCoverProb || 0.2));
+        const makeFullCover = (coverRng() < (preset.fullCoverProb ||0.2));
 
         if (makeFullCover) {
             // require at most the number of fruits present; avoid nonsensical fullCover values
@@ -900,16 +900,16 @@ function startNewGame(options = {}) {
             coveredPositions[idx] = { fullCover: required };
             initialCoveredPositions[idx] = [];
         } else {
-            const maxDepth = Math.min(stackLen - 1, GLASS_CAPACITY - 1);
+            const maxDepth = Math.min(stackLen -1, GLASS_CAPACITY -1);
             const depth = coverRandInt(1, Math.max(1, maxDepth));
-            const topIndex = stackLen - 1;
+            const topIndex = stackLen -1;
             const positions = [];
-            for (let j = 1; j <= depth; j++) {
+            for (let j =1; j <= depth; j++) {
                 const absIndex = topIndex - j; // absolute index-from-bottom
-                // allow covering the bottom slot (absIndex >= 0)
-                if (absIndex >= 0) positions.push(absIndex);
+                // allow covering the bottom slot (absIndex >=0)
+                if (absIndex >=0) positions.push(absIndex);
             }
-            if (positions.length > 0) {
+            if (positions.length >0) {
                 initialCoveredPositions[idx] = positions.slice();
                 coveredPositions[idx] = { positions: positions.slice() };
             }
@@ -926,15 +926,17 @@ const difficultySelect = document.getElementById("fs-difficulty");
 const fastHardCheckbox = document.getElementById("fs-fast-hard");
 
 resetBtn.addEventListener("click", () => {
-    const diff = difficultySelect ? difficultySelect.value : "medium";
-    const fast = fastHardCheckbox ? fastHardCheckbox.checked : false;
-    startNewGame({ difficulty: diff, mode: "scramble", fastHard: fast });
+ const diff = difficultySelect ? difficultySelect.value : "medium";
+ const fast = fastHardCheckbox ? fastHardCheckbox.checked : false;
+ // Enable fastHard when user checked the box OR when difficulty selected is hard
+ startNewGame({ difficulty: diff, mode: "scramble", fastHard: (fast || diff === 'hard') });
 });
 
 // initial start uses UI choices if present
 const initialDiff = difficultySelect ? difficultySelect.value : "medium";
 const initialFast = fastHardCheckbox ? fastHardCheckbox.checked : false;
-startNewGame({ difficulty: initialDiff, mode: "scramble", fastHard: initialFast });
+// If UI difficulty is hard and checkbox not checked, still enable fastHard by default for hard
+startNewGame({ difficulty: initialDiff, mode: "scramble", fastHard: (initialFast || initialDiff === 'hard') });
 
 // ---- WIN CHECK & SCORING ----
 
