@@ -76,9 +76,9 @@ function isGlassComplete(stack) {
 // ---- DIFFICULTY, SCORING, DAILY ----
 
 const DIFFICULTY_PRESETS = {
-    easy:   { glasses: 6,  emptyGlasses: 2, coveredGlasses: 2, scrambleMoves: 60,  multiplier: 1.0,  fullCoverProb: 0.10, minSolveMoves: 6 },
-    medium: { glasses: 8,  emptyGlasses: 2, coveredGlasses: 3, scrambleMoves: 90,  multiplier: 1.25, fullCoverProb: 0.25, minSolveMoves: 10 },
-    hard:   { glasses: 10, emptyGlasses: 2, coveredGlasses: 4, scrambleMoves: 140, multiplier: 1.5,  fullCoverProb: 0.35, minSolveMoves: 14 }
+    easy:   { glasses: 6,  emptyGlasses: 1, coveredGlasses: 2, scrambleMoves: 120, multiplier: 1.0,  fullCoverProb: 0.12, minSolveMoves: 6 },
+    medium: { glasses: 8,  emptyGlasses: 1, coveredGlasses: 3, scrambleMoves: 180, multiplier: 1.25, fullCoverProb: 0.30, minSolveMoves: 12 },
+    hard:   { glasses: 10, emptyGlasses: 1, coveredGlasses: 4, scrambleMoves: 260, multiplier: 1.5,  fullCoverProb: 0.40, minSolveMoves: 20 }
 };
 
 let startTime = null;
@@ -533,18 +533,17 @@ function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
 
     const isAllSolvedFull = (st) => isStateSolved(st, numGlasses);
 
-    const maxRetries = 40;
-    let finalState = null;
+    const maxRetries = 80; // was 40 -> allow more attempts to find a true scramble
 
     // difficulty threshold (prefer preset)
     let minAccept;
     if (typeof config._presetName === "string" && DIFFICULTY_PRESETS[config._presetName]) {
         minAccept = DIFFICULTY_PRESETS[config._presetName].minSolveMoves || 6;
-    } else if (numGlasses >= 10) minAccept = 12;
-    else if (numGlasses >= 8) minAccept = 8;
-    else minAccept = 5;
+    } else if (numGlasses >= 10) minAccept = 16;
+    else if (numGlasses >= 8) minAccept = 12;
+    else minAccept = 6;
 
-    const baseDepth = numGlasses >= 10 ? 26 : (numGlasses >= 8 ? 22 : 18);
+    const baseDepth = numGlasses >= 10 ? 32 : (numGlasses >= 8 ? 26 : 20); // increase BFS depth
 
     console.info("[gen] start generateSolvableLevel", { numGlasses, emptyGlasses, seed, minAccept, baseDepth });
 
@@ -564,12 +563,11 @@ function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
         console.debug(`[gen] attempt ${attempt}: movesTarget=${movesTarget}, initial minSolve=${minSolve}`);
 
         if (minSolve === Infinity || minSolve < minAccept) {
-            // try injecting conflicts a few times to raise difficulty
-            for (let inj = 0; inj < 3; inj++) {
+            // try injecting conflicts more times to raise difficulty
+            for (let inj = 0; inj < 6; inj++) { // was 3 -> now 6
                 injectConflicts(state, numGlasses, rng, 1);
                 if (isAllSolvedFull(state)) break;
                 minSolve = findMinSolutionMoves(state, numGlasses, baseDepth);
-                console.debug(`[gen] attempt ${attempt} inj ${inj}: minSolve=${minSolve}`);
                 if (minSolve !== Infinity && minSolve >= minAccept) break;
             }
         }
