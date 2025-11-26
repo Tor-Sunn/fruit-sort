@@ -1,27 +1,42 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Fruit Sort – Glass Prototype</title>
-  <link rel="stylesheet" href="style.css" />
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fruit Sort – Glass Prototype</title>
+    <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 
-  <div class="fs-wrapper">
-    <h1 class="fs-title">🍓 Fruit Sort</h1>
-    <p class="fs-sub">Prototype – 6 glasses (space for 18)</p>
+    <div class="fs-wrapper">
+        <h1 class="fs-title">🍓 Fruit Sort</h1>
+        <p class="fs-sub">Prototype – 6 glasses (space for 18)</p>
 
-    <div class="fs-topbar">
-      <div>Moves: <span id="fs-moves">0</span></div>
-      <div id="fs-status"></div>
-      <button id="fs-reset">New board</button>
+        <div class="fs-topbar">
+            <div>Moves: <span id="fs-moves">0</span></div>
+            <div id="fs-status"></div>
+
+            <!-- Difficulty controls (inserted next to New board) -->
+            <div class="fs-controls" style="display:inline-flex; align-items:center; gap:12px; margin-left:12px;">
+                <label for="fs-difficulty" style="color:var(--muted); font-size:0.9rem;">Difficulty</label>
+                <select id="fs-difficulty">
+                    <option value="easy">Easy</option>
+                    <option value="medium" selected>Medium</option>
+                    <option value="hard">Hard</option>
+                </select>
+
+                <label style="display:inline-flex; align-items:center; gap:6px; color:var(--muted); font-size:0.9rem;">
+                    <input type="checkbox" id="fs-fast-hard" /> Fast‑hard
+                </label>
+            </div>
+
+            <button id="fs-reset">New board</button>
+        </div>
+
+        <!-- Her er brettet – satt opp for inntil 18 glass (6 per rad, 3 rader) -->
+        <div id="fs-board" class="fs-board"></div>
     </div>
 
-    <!-- Her er brettet – satt opp for inntil 18 glass (6 per rad, 3 rader) -->
-    <div id="fs-board" class="fs-board"></div>
-  </div>
-
-  <script src="game.js"></script>
+    <script src="game.js"></script>
 </body>
 </html>

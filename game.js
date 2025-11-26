@@ -37,6 +37,19 @@ const boardEl = document.getElementById("fs-board");
 const movesEl = document.getElementById("fs-moves");
 const statusEl = document.getElementById("fs-status");
 const resetBtn = document.getElementById("fs-reset");
+const difficultySelect = document.getElementById("fs-difficulty");
+const fastHardCheckbox = document.getElementById("fs-fast-hard");
+
+resetBtn.addEventListener("click", () => {
+    const diff = difficultySelect ? difficultySelect.value : "medium";
+    const fast = fastHardCheckbox ? fastHardCheckbox.checked : false;
+    startNewGame({ difficulty: diff, mode: "scramble", fastHard: fast });
+});
+
+// initial start uses UI choices if present
+const initialDiff = difficultySelect ? difficultySelect.value : "medium";
+const initialFast = fastHardCheckbox ? fastHardCheckbox.checked : false;
+startNewGame({ difficulty: initialDiff, mode: "scramble", fastHard: initialFast });
 
 // ---- STATE ----
 
@@ -576,6 +589,7 @@ function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
                 if (t.length >= GLASS_CAPACITY) continue;
                 if (t.length === 0) empties.push(j);
                 else if (t[t.length - 1] !== fruit) targets.push(j);
+                else neutral.push(j);
             }
             const pool = targets.length ? targets : empties;
             if (pool.length) {
@@ -660,6 +674,50 @@ function generateSolvableLevel(config, scrambleMoves = 100, seed = null) {
     }
 
     return finalState;
+}
+
+// Fast generator: deep reverse-scramble + conflict injection, no BFS verification.
+// Use when you want "hard but fast" boards (trade correctness-for-difficulty/time).
+function generateSolvableLevelFast(config, scrambleMoves = 300, seed = null) {
+    const { glasses: numGlasses, emptyGlasses } = config;
+    const nonEmpty = numGlasses - emptyGlasses;
+    const rng = seed == null ? Math.random : makeSeededRng(seed);
+
+    const shuffleWithRng = (arr) => {
+        for (let i = arr.length - 1; i > 0; i--) {
+            const j = Math.floor(rng() * (i + 1));
+            [arr[i], arr[j]] = [arr[j], arr[i]];
+        }
+        return arr;
+    };
+
+    const buildSolvedState = () => {
+        const pool = shuffleWithRng([...FRUIT_POOL]).slice(0, nonEmpty);
+        const state = pool.map(f => Array.from({ length: GLASS_CAPACITY }, () => f));
+        for (let i = 0; i < emptyGlasses; i++) state.push([]);
+        while (state.length < numGlasses) state.push([]);
+        return state;
+    };
+
+    // Start solved, then aggressively reverse-scramble and inject conflicts.
+    const state = buildSolvedState();
+
+    // Try a few strong scramble passes with increasing depth
+    const passes = 3;
+    for (let p = 0; p < passes; p++) {
+        const factor = 1 + p * 0.6;
+        performScrambleOnce(state, Math.min(Math.floor(scrambleMoves * factor), 1200), rng);
+        // inject a couple of targeted conflicts each pass
+        injectConflicts(state, numGlasses, rng, 1 + p);
+    }
+
+    // final lightweight shuffle to mix leftover stacks
+    for (let i = 0; i < Math.min(6, Math.max(1, Math.floor(scrambleMoves / 80))); i++) {
+        performScrambleOnce(state, Math.min(20 + i * 10, 120), rng);
+    }
+
+    while (state.length < MAX_GLASSES) state.push([]);
+    return state;
 }
 
 // ---- INTERACTION ----
@@ -807,16 +865,19 @@ function startNewGame(options = {}) {
     };
 
     const mode = options.mode || "scramble";
+    const fastHard = !!options.fastHard;
 
     // determine levelSeed first so we can set deterministic cover RNG
     if (mode === "daily" && options.date) {
         levelSeed = dateSeedFromDate(options.date);
         setCoverRng(levelSeed);
-        glasses = generateSolvableLevel(activeLevel, preset.scrambleMoves, levelSeed);
+        if (fastHard) glasses = generateSolvableLevelFast(activeLevel, preset.scrambleMoves, levelSeed);
+        else glasses = generateSolvableLevel(activeLevel, preset.scrambleMoves, levelSeed);
     } else if (mode === "scramble") {
         levelSeed = null;
         setCoverRng(null);
-        glasses = generateSolvableLevel(activeLevel, preset.scrambleMoves);
+        if (fastHard) glasses = generateSolvableLevelFast(activeLevel, preset.scrambleMoves);
+        else glasses = generateSolvableLevel(activeLevel, preset.scrambleMoves);
     } else {
         levelSeed = null;
         setCoverRng(null);
