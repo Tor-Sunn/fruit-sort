@@ -166,6 +166,17 @@ function performMerge(a, b) {
 
     checkGameOver();
 }
+// etter merge (grid[row][col] = newFruit etc.)
+
+if (checkGameOver()) {
+    alert("Game Over – no space left at the top!");
+    return;
+}
+
+// gravity → refill → render
+applyGravity();
+refillFromTop();
+renderGrid();
 
 function updateStats() {
     scoreEl.textContent = `Score: ${score}`;
@@ -208,10 +219,12 @@ function refill() {
     }
 }
 
-// GAME OVER
 function checkGameOver() {
+    // sjekk KUN toppraden
     for (let c = 0; c < COLS; c++) {
-        if (!grid[0][c].type) return;
+        if (grid[0][c] === null) {
+            return false;   // minst EN ledig plass → ikke game over
+        }
     }
-    alert("Game Over – no space left at the top!");
+    return true; // alle toppceller er FULL → game over
 }
