@@ -1,33 +1,39 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
+  <head>
     <meta charset="UTF-8" />
     <title>Fruit Merge</title>
     <link rel="stylesheet" href="style.css" />
-</head>
-<body>
+  </head>
+  <body>
     <div class="fm-wrapper">
-        <header class="fm-header">
-            <h1 class="fm-title">🍓 Fruit Merge</h1>
-            <div class="fm-stats">
-                <span>Score: <span id="fm-score">0</span></span>
-                <span>Moves: <span id="fm-moves">0</span></span>
-                <span id="fm-target" class="fm-target-span"></span>
-                <button id="fm-new" class="fm-btn">New game</button>
-            </div>
-            <p class="fm-sub">
-                Match identical fruits in a straight line (horizontal, vertical or diagonal) with
-                <strong>no fruits or leaves in between</strong>. The higher fruit appears at the lower end.
-                Empty cells do not fall after merges — new fruits drop in from the top only when there are no
-                possible merges left. Merge next to leaves to remove them (leaves have HP).
-            </p>
-        </header>
+      <header class="fm-header">
+        <h1 class="fm-title">🍓 Fruit Merge</h1>
+        <div class="fm-stats">
+          <span>Score: <span id="fm-score">0</span></span>
+          <span>Moves: <span id="fm-moves">0</span></span>
+          <span id="fm-target" class="fm-target-span"></span>
+          <button id="fm-hint" class="fm-btn" title="Show a possible merge (costs 300)">
+            Hint (-300)
+          </button>
+          <button id="fm-new" class="fm-btn">New game</button>
+        </div>
+        <p class="fm-sub">
+          Match identical fruits in a straight line (horizontal, vertical or diagonal) with
+          <strong>no fruits or leaves in between</strong>. The merge happens in the
+          <strong>last clicked cell</strong>, and the first selected cell becomes empty. There is
+          <strong>no gravity</strong>. New fruits only drop from the top when there are
+          <strong>no possible merges</strong> left, and only into columns that are empty at the top.
+          Merge next to leaves to remove them (leaves have HP).
+        </p>
+      </header>
 
-        <main>
-            <div id="fm-board" class="fm-board"></div>
-        </main>
+      <main>
+        <div id="fm-merge-chart" class="fm-chart" aria-label="Merge chart"></div>
+        <div id="fm-board" class="fm-board"></div>
+      </main>
     </div>
 
     <script src="game.js"></script>
-</body>
+  </body>
 </html>
