@@ -1,29 +1,29 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
     <title>Fruit Merge</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-
-    <div class="container">
-
-        <div class="topbar">
-            <h1>🍓 Fruit Merge</h1>
-            <div class="stats">
-                <span id="score">Score: 0</span>
-                <span id="moves">Moves: 0</span>
-                <button id="newgame">New game</button>
+    <div class="fm-wrapper">
+        <header class="fm-header">
+            <h1 class="fm-title">🍓 Fruit Merge</h1>
+            <div class="fm-stats">
+                <span>Score: <span id="fm-score">0</span></span>
+                <span>Moves: <span id="fm-moves">0</span></span>
+                <button id="fm-new" class="fm-btn">New game</button>
             </div>
-            <p class="subtitle">
-                Match identical fruits in a straight line. Merge into higher level!
+            <p class="fm-sub">
+                Match identical fruits in a straight line (horizontal, vertical or diagonal) with
+                <strong>no fruits or leaves in between</strong>. The higher fruit appears at the lower end.
+                Empty cells fall down, and new fruits drop in from the top. Merge next to leaves to remove them.
             </p>
-        </div>
+        </header>
 
-        <div id="board" class="board"></div>
-
+        <main>
+            <div id="fm-board" class="fm-board"></div>
+        </main>
     </div>
 
     <script src="game.js"></script>
