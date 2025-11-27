@@ -12,12 +12,14 @@
             <div class="fm-stats">
                 <span>Score: <span id="fm-score">0</span></span>
                 <span>Moves: <span id="fm-moves">0</span></span>
+                <span id="fm-target" class="fm-target-span"></span>
                 <button id="fm-new" class="fm-btn">New game</button>
             </div>
             <p class="fm-sub">
                 Match identical fruits in a straight line (horizontal, vertical or diagonal) with
                 <strong>no fruits or leaves in between</strong>. The higher fruit appears at the lower end.
-                Empty cells fall down, and new fruits drop in from the top. Merge next to leaves to remove them.
+                Empty cells do not fall after merges — new fruits drop in from the top only when there are no
+                possible merges left. Merge next to leaves to remove them (leaves have HP).
             </p>
         </header>
 

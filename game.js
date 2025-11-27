@@ -46,6 +46,7 @@ const boardEl = document.getElementById("fm-board");
 const scoreEl = document.getElementById("fm-score");
 const movesEl = document.getElementById("fm-moves");
 const newBtn = document.getElementById("fm-new");
+const targetEl = document.getElementById("fm-target");
 
 // ====================
 // HJELPERE
@@ -62,7 +63,7 @@ function createRandomFruit() {
 
 function createRandomCell() {
     if (Math.random() < LEAF_PROBABILITY) {
-        return { kind: "leaf" };
+        return { kind: "leaf", hp: randInt(1,4) };
     }
     return createRandomFruit();
 }
@@ -93,8 +94,8 @@ function initGrid() {
 function renderGrid() {
     boardEl.innerHTML = "";
 
-    for (let r = 0; r < ROWS; r++) {
-        for (let c = 0; c < COLS; c++) {
+    for (let r =0; r < ROWS; r++) {
+        for (let c =0; c < COLS; c++) {
             const cellData = grid[r][c];
             const cell = document.createElement("div");
             cell.className = "fm-cell";
@@ -109,8 +110,12 @@ function renderGrid() {
                 img.alt = "leaf";
                 img.className = "fm-leaf-img";
                 cell.appendChild(img);
+                const hp = document.createElement("span");
+                hp.className = "fm-leaf-hp";
+                hp.textContent = String(cellData.hp ||1);
+                cell.appendChild(hp);
             } else if (cellData.kind === "fruit") {
-                const sprite = FRUITS[cellData.level] || FRUITS[FRUITS.length - 1];
+                const sprite = FRUITS[cellData.level] || FRUITS[FRUITS.length -1];
                 const img = document.createElement("img");
                 img.src = `img/${sprite}.png`;
                 img.alt = sprite;
@@ -128,6 +133,17 @@ function renderGrid() {
 
     scoreEl.textContent = score.toString();
     movesEl.textContent = moves.toString();
+
+    // Update target display if present
+    if (typeof targetEl !== 'undefined' && targetEl) {
+        if (typeof targetLevel === 'number') {
+            const lvl = Math.min(targetLevel, FRUITS.length -1);
+            const sprite = FRUITS[lvl] || FRUITS[FRUITS.length -1];
+            targetEl.innerHTML = `Target: <img src="img/${sprite}.png" alt="target" class="fm-target-img"> (lvl ${lvl})`;
+        } else {
+            targetEl.textContent = "";
+        }
+    }
 }
 
 // ====================
@@ -161,45 +177,27 @@ function pathClear(r1, c1, r2, c2) {
 }
 
 function removeNeighborLeaves(row, col) {
-    for (let dr = -1; dr <= 1; dr++) {
-        for (let dc = -1; dc <= 1; dc++) {
-            if (dr === 0 && dc === 0) continue;
+    for (let dr = -1; dr <=1; dr++) {
+        for (let dc = -1; dc <=1; dc++) {
+            if (dr ===0 && dc ===0) continue;
             const nr = row + dr;
             const nc = col + dc;
             if (!inBounds(nr, nc)) continue;
             const cell = grid[nr][nc];
             if (cell && cell.kind === "leaf") {
-                grid[nr][nc] = null;
+                // decrement HP, remove only when hp <=0
+                cell.hp = (typeof cell.hp === 'number') ? (cell.hp -1) :0;
+                if (cell.hp <=0) {
+                    grid[nr][nc] = null;
+                }
             }
         }
     }
 }
 
 // ====================
-// GRAVITASJON & REFILL
+// REFILL
 // ====================
-
-function applyGravity() {
-    for (let c = 0; c < COLS; c++) {
-        const stack = [];
-        // samle alle ikke-null i denne kolonnen
-        for (let r = 0; r < ROWS; r++) {
-            if (grid[r][c] !== null) {
-                stack.push(grid[r][c]);
-            }
-        }
-        // fyll nedover fra bunnen
-        let r = ROWS - 1;
-        for (let i = stack.length - 1; i >= 0; i--) {
-            grid[r][c] = stack[i];
-            r--;
-        }
-        // resten på toppen blir tomt
-        for (; r >= 0; r--) {
-            grid[r][c] = null;
-        }
-    }
-}
 
 // Fyll kun tomme celler i toppen av hver kolonne
 function refillFromTop() {
@@ -333,36 +331,36 @@ function handleCellClick(row, col) {
     // Gyldig merge!
     moves++;
 
-    // Finn destinasjon (den "nederste" / lengst til høyre)
-    let destRow = r1;
-    let destCol = c1;
-    let srcRow = r2;
-    let srcCol = c2;
-
-    if (r2 > r1 || (r2 === r1 && c2 > c1)) {
-        destRow = r2;
-        destCol = c2;
-        srcRow = r1;
-        srcCol = c1;
-    }
+    // Destination is always the cell clicked last (r2,c2). Source becomes empty.
+    const destRow = r2;
+    const destCol = c2;
+    const srcRow = r1;
+    const srcCol = c1;
 
     const baseLevel = from.level; // samme som to.level
-    const newLevel = Math.min(baseLevel + 1, FRUITS.length - 1);
+    const newLevel = Math.min(baseLevel +1, FRUITS.length -1);
     grid[destRow][destCol] = { kind: "fruit", level: newLevel };
     grid[srcRow][srcCol] = null;
 
-    // score – enkelt: 10 * (nivå+1)
-    score += 10 * (newLevel + 1);
+    // score – enkelt:10 * (nivå+1)
+    score +=10 * (newLevel +1);
 
-    // Fjern blader rundt den nye frukten
+    // Check target bonus
+    if (typeof targetLevel === 'number' && newLevel === targetLevel) {
+        score += TARGET_BONUS;
+        pickNewTarget();
+    }
+
+    // Fjern blader rundt den nye frukten (decrement hp)
     removeNeighborLeaves(destRow, destCol);
 
     // Nullstill seleksjon før vi manipulerer mer
     selected = null;
 
-    // Gravitasjon + refill
-    applyGravity();
-    refillFromTop();
+    // Do NOT apply gravity. Only refill from top when no merges remain.
+    if (!hasAnyMergeMove()) {
+        refillFromTop();
+    }
 
     // Game over-sjekk
     if (checkGameOver()) {
@@ -370,7 +368,7 @@ function handleCellClick(row, col) {
         renderGrid();
         setTimeout(() => {
             alert("Game Over – no space left at the top and no more merges!");
-        }, 10);
+        },10);
         return;
     }
 
@@ -395,11 +393,12 @@ newBtn.addEventListener("click", () => {
 });
 
 function startNewGame() {
-    score = 0;
-    moves = 0;
+    score =0;
+    moves =0;
     selected = null;
     gameOver = false;
     initGrid();
+    pickNewTarget();
     renderGrid();
 }
 

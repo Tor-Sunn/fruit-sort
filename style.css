@@ -67,6 +67,21 @@ body {
     box-shadow: 0 8px 18px rgba(16, 185, 129, 0.4);
 }
 
+/* target */
+.fm-target-span {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(14, 165, 233, 0.08);
+    color: #bae6fd;
+}
+.fm-target-img {
+    width: 22px;
+    height: 22px;
+}
+
 /* === Board === */
 
 .fm-board {
@@ -127,7 +142,7 @@ body {
 
 /* Leaf badge "blocker" counter (optional for senere) */
 
-.fm-leaf-badge {
+.fm-leaf-hp {
     position: absolute;
     right: 6px;
     bottom: 4px;
