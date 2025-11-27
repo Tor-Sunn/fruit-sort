@@ -131,6 +131,26 @@ body {
   }
 }
 
+@keyframes fm-drop-in-keyframes {
+  0% {
+    transform: translateY(-180%);
+    opacity: 0;
+  }
+  55% {
+    transform: translateY(6px);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.fm-drop-in {
+  animation: fm-drop-in-keyframes 520ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform, opacity;
+}
+
 .fm-fx-bonus {
   position: absolute;
   left: 50%;
@@ -294,13 +314,27 @@ body {
 .fm-jar-target {
   position: absolute;
   left: 50%;
-  top: 6px;
-  transform: translateX(-50%);
-  width: 28px;
-  height: 28px;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 80%;
+  height: auto;
   object-fit: contain;
   filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.35));
   z-index: 3;
+}
+
+.fm-jar-hp {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  min-width: 16px;
+  padding: 1px 4px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #e5e7eb;
+  font-size: 11px;
+  font-weight: 700;
+  z-index: 4;
 }
 
 /* Smaller screens */

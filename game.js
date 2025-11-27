@@ -30,9 +30,13 @@ const FRUITS = [
 
 // Sannsynlighet for at en ny celle blir blad i stedet for frukt
 const LEAF_PROBABILITY = 0.12;
+// Jar unlock behavior: if true, only merges adjacent to a jar count.
+// If false, any merge that produces the target fruit level progresses the jar.
+const JAR_REQUIRE_ADJACENT = false;
 
 // Scoring configuration
-const MERGE_POINTS_BASE = 10; // points per merge: MERGE_POINTS_BASE * (newLevel + 1)
+const MERGE_POINTS_BASE = 10; // base points
+const MERGE_LEVEL_BONUS = 6; // extra scaling per level^2 to reward higher merges
 const TARGET_BONUS_BASE = 300; // base bonus for hitting target fruit
 const TARGET_BONUS_PER_LEVEL = 200; // additional per fruit level
 
@@ -48,6 +52,67 @@ let hintPair = null; // { from:{row,col}, to:{row,col} }
 let refillCounter = 0; // count refills triggered by no-merge states
 let jars = []; // [{id,col,startRow,height,targetLevel}]
 let fxQueue = []; // queued UI effects
+// --- SOUND ---
+const SFX_ENABLED = true;
+let lastDropSoundAt = 0;
+let SFX_VERSION = Date.now(); // cache bust; update manually if needed
+function buildAudioSrc(name) {
+  const probe = document.createElement('audio');
+  const canOgg = !!probe.canPlayType && probe.canPlayType('audio/ogg') !== '';
+  return canOgg ? `sound/${name}.ogg?v=${SFX_VERSION}` : `sound/${name}.wav?v=${SFX_VERSION}`;
+}
+function createSfx(name, volume = 0.35) {
+  const src = buildAudioSrc(name);
+  const base = new Audio(src);
+  base.preload = 'auto';
+  base.addEventListener('error', () => {
+    console.warn('[SFX] Failed loading', name, 'src:', src);
+  });
+  base.addEventListener(
+    'canplaythrough',
+    () => {
+      console.log('[SFX] Ready', name);
+    },
+    { once: true }
+  );
+  return {
+    play(overVolume) {
+      if (!SFX_ENABLED) return;
+      try {
+        const a = base.cloneNode(true);
+        a.volume = typeof overVolume === 'number' ? overVolume : volume;
+        a.play().catch(() => {});
+      } catch (err) {
+        console.warn('[SFX] play failed', name, err);
+      }
+    },
+  };
+}
+function buildSfxRegistry() {
+  return {
+    merge: createSfx('merge', 0.35),
+    upgrade: createSfx('upgrade', 0.4),
+    bonus_target: createSfx('bonus_target', 0.55),
+    leaf_hit: createSfx('leaf_hit', 0.25),
+    leaf_clear: createSfx('leaf_clear', 0.35),
+    glass_hit: createSfx('glass_hit', 0.3),
+    glass_unlock: createSfx('glass_unlock', 0.55),
+    drop: createSfx('drop', 0.28),
+    refill: createSfx('refill', 0.32),
+    hint: createSfx('hint', 0.3),
+    invalid: createSfx('invalid', 0.25),
+    new_game: createSfx('new_game', 0.5),
+    game_over: createSfx('game_over', 0.5),
+    click: createSfx('click', 0.25),
+    score_pop: createSfx('score_pop', 0.45),
+  };
+}
+let SFX = buildSfxRegistry();
+window.fmReloadSounds = function fmReloadSounds() {
+  SFX_VERSION = Date.now();
+  SFX = buildSfxRegistry();
+  console.log('[SFX] Reloaded with version', SFX_VERSION);
+};
 // --- DOM ---
 
 const boardEl = document.getElementById('fm-board');
@@ -147,6 +212,9 @@ function renderGrid() {
         img.src = `img/${sprite}.png`;
         img.alt = sprite;
         img.className = 'fm-fruit-img';
+        // If this was a newly dropped cell, animate
+        const isDrop = fxQueue.some((fx) => fx.text === 'drop' && fx.row === r && fx.col === c);
+        if (isDrop) img.classList.add('fm-drop-in');
         cell.appendChild(img);
       } else if (cellData.kind === 'lock') {
         // Render as locked empty space; no per-cell overlay now (handled by stack overlay)
@@ -189,6 +257,8 @@ function renderGrid() {
   renderJarStacks();
   // Render queued UI effects (bonus popups)
   renderEffects();
+  // Remove any drop markers we consumed
+  fxQueue = fxQueue.filter((fx) => fx.text !== 'drop');
 }
 
 // ====================
@@ -232,8 +302,12 @@ function removeNeighborLeaves(row, col) {
       if (cell && cell.kind === 'leaf') {
         // decrement HP, remove only when hp <=0
         cell.hp = typeof cell.hp === 'number' ? cell.hp - 1 : 0;
+        if (cell.hp > 0) {
+          if (SFX.leaf_hit) SFX.leaf_hit.play();
+        }
         if (cell.hp <= 0) {
           grid[nr][nc] = null;
+          if (SFX.leaf_clear) SFX.leaf_clear.play();
         }
       }
     }
@@ -250,10 +324,47 @@ function refillFromTop() {
     for (let r = 0; r < ROWS; r++) {
       if (grid[r][c] === null) {
         grid[r][c] = createRandomCell();
+        // mark for drop animation
+        fxQueue.push({ row: r, col: c, text: 'drop' });
       } else {
         // denne kolonnen er fylt fra toppen ned til første frukt/blad
         break;
       }
+    }
+  }
+  // play refill sound once if any drops were added
+  if (SFX.refill && fxQueue.some((f) => f.text === 'drop')) {
+    SFX.refill.play();
+  }
+}
+
+// Gravity: collapse each column so non-null cells slide down, preserving order
+function applyGravity() {
+  let moved = false;
+  // Repeat passes until no fruit can fall further
+  for (let pass = 0; pass < ROWS; pass++) {
+    let any = false;
+    for (let c = 0; c < COLS; c++) {
+      for (let r = ROWS - 2; r >= 0; r--) {
+        const cur = grid[r][c];
+        const below = grid[r + 1][c];
+        // Only fruits fall; any non-null below (fruit/leaf/lock) blocks
+        if (cur && cur.kind === 'fruit' && below === null) {
+          grid[r + 1][c] = cur;
+          grid[r][c] = null;
+          fxQueue.push({ row: r + 1, col: c, text: 'drop' });
+          any = true;
+          moved = true;
+        }
+      }
+    }
+    if (!any) break;
+  }
+  if (moved) {
+    const now = performance.now();
+    if (SFX.drop && now - lastDropSoundAt > 120) {
+      lastDropSoundAt = now;
+      SFX.drop.play(0.32);
     }
   }
 }
@@ -360,7 +471,10 @@ function handleCellClick(row, col) {
 
   if (!selected) {
     // første valg
-    if (!cell || cell.kind !== 'fruit' || cell.lockedBy) return; // kan ikke velge låste frukter
+    if (!cell || cell.kind !== 'fruit' || cell.lockedBy) {
+      if (SFX.invalid) SFX.invalid.play();
+      return; // kan ikke velge låste frukter
+    }
     selected = { row, col };
     renderGrid();
     return;
@@ -403,12 +517,14 @@ function handleCellClick(row, col) {
 
   if (!cellsAligned(r1, c1, r2, c2) || !pathClear(r1, c1, r2, c2)) {
     // ugyldig trekk – flytt markering til ny celle
+    if (SFX.invalid) SFX.invalid.play();
     selected = { row, col };
     renderGrid();
     return;
   }
 
   if (from.level !== to.level) {
+    if (SFX.invalid) SFX.invalid.play();
     selected = { row, col };
     renderGrid();
     return;
@@ -428,8 +544,13 @@ function handleCellClick(row, col) {
   grid[destRow][destCol] = { kind: 'fruit', level: newLevel };
   grid[srcRow][srcCol] = null;
 
-  // score – per merge
-  score += MERGE_POINTS_BASE * (newLevel + 1);
+  // play merge sound
+  if (SFX && SFX.merge) SFX.merge.play();
+  // play upgrade (slightly after merge for layering)
+  if (SFX && SFX.upgrade) setTimeout(() => SFX.upgrade.play(), 20);
+
+  // score – per merge scaled by level
+  score += MERGE_POINTS_BASE * (newLevel + 1) + MERGE_LEVEL_BONUS * (newLevel * newLevel);
 
   // Check target bonus
   if (typeof targetLevel === 'number' && newLevel === targetLevel) {
@@ -437,6 +558,8 @@ function handleCellClick(row, col) {
     score += bonus;
     // Visual FX at merge destination
     queueFx(destRow, destCol, `+${bonus}`, true);
+    if (SFX.bonus_target) SFX.bonus_target.play();
+    if (SFX.score_pop) setTimeout(() => SFX.score_pop.play(), 40);
     // Progress the target difficulty window upwards gradually
     targetFloor = Math.min(targetFloor + 1, FRUITS.length - 5);
     targetCeil = Math.min(targetCeil + 1, FRUITS.length - 1);
@@ -450,13 +573,16 @@ function handleCellClick(row, col) {
   // Nullstill seleksjon før vi manipulerer mer
   selected = null;
 
-  // Attempt to unlock a jar based on produced fruit and adjacency
-  tryUnlockJarByFruit(destRow, destCol, newLevel);
+  // Progress glass unlock when producing the target fruit
+  progressJarsByFruit(newLevel, destRow, destCol);
 
-  // Do NOT apply gravity. Only refill from top when no merges remain.
+  // When no merges remain, let fruits fall and then refill so it's clear
   if (!hasAnyMergeMove()) {
-    // First refill the board so we have solid columns, then potentially place jars/keys
+    applyGravity();
+    // First refill the board so we have solid columns, then potentially place jars
     refillFromTop();
+    // Let newly spawned cells fall down to first obstacle
+    applyGravity();
     refillCounter += 1;
     if (refillCounter % 3 === 0) {
       spawnJars(1);
@@ -468,6 +594,7 @@ function handleCellClick(row, col) {
     gameOver = true;
     renderGrid();
     setTimeout(() => {
+      if (SFX.game_over) SFX.game_over.play();
       alert('Game Over – no space left at the top and no more merges!');
     }, 10);
     return;
@@ -490,6 +617,8 @@ boardEl.addEventListener('click', (e) => {
 });
 
 newBtn.addEventListener('click', () => {
+  if (SFX.click) SFX.click.play(0.25);
+  if (SFX.new_game) setTimeout(() => SFX.new_game.play(0.45), 40);
   startNewGame();
 });
 
@@ -505,6 +634,7 @@ if (hintBtn) {
     score = Math.max(0, score - 300);
     hintPair = pair;
     selected = { row: pair.from.row, col: pair.from.col };
+    if (SFX.hint) SFX.hint.play();
     renderGrid();
   });
 }
@@ -604,7 +734,7 @@ function spawnJars(count) {
     if (!ok) continue;
     const id = nextJarId++;
     const tLevel = randInt(1, Math.min(FRUITS.length - 3, 6));
-    jars.push({ id, col, startRow: start, height: 2, targetLevel: tLevel });
+    jars.push({ id, col, startRow: start, height: 2, targetLevel: tLevel, hp: 2 });
     for (let i = 0; i < 2; i++) {
       const cell = grid[start + i][col];
       if (cell && cell.kind === 'fruit') {
@@ -647,10 +777,10 @@ function renderJarStacks() {
     // Use PNG image to render the jar stretched across the segment
     const img = document.createElement('img');
     img.className = 'fm-jar-stack-img';
-    img.src = 'img/glass.png';
-    img.alt = 'jar';
+    img.src = 'img/jar_inner.png';
+    img.alt = '';
     stack.appendChild(img);
-    // Show required fruit badge for unlocking
+    // Show required fruit badge and HP for unlocking
     if (typeof jar.targetLevel === 'number') {
       const badge = document.createElement('img');
       badge.className = 'fm-jar-target';
@@ -659,14 +789,19 @@ function renderJarStacks() {
       badge.alt = 'target fruit';
       stack.appendChild(badge);
     }
+    if (typeof jar.hp === 'number') {
+      const hp = document.createElement('span');
+      hp.className = 'fm-jar-hp';
+      hp.textContent = String(jar.hp);
+      stack.appendChild(hp);
+    }
     boardEl.appendChild(stack);
   }
 }
 
-function unlockOneJar() {
-  if (!jars.length) return;
-  // unlock the oldest jar
-  const jar = jars.shift();
+function unlockJarByIndex(index) {
+  if (index < 0 || index >= jars.length) return;
+  const jar = jars.splice(index, 1)[0];
   for (let i = 0; i < jar.height; i++) {
     const cell = grid[jar.startRow + i][jar.col];
     if (cell) {
@@ -680,35 +815,32 @@ function unlockOneJar() {
   }
 }
 
-// Unlock a jar if a merge produced its target fruit adjacent to the jar segment
-function tryUnlockJarByFruit(destRow, destCol, producedLevel) {
+// Progress jars when a target fruit is produced (global or adjacent based on flag)
+function progressJarsByFruit(producedLevel, destRow, destCol) {
   for (let j = 0; j < jars.length; j++) {
     const jar = jars[j];
     if (producedLevel !== jar.targetLevel) continue;
-    // check adjacency to any of the jar's cells
-    for (let i = 0; i < jar.height; i++) {
-      const r = jar.startRow + i;
-      const c = jar.col;
-      if (Math.abs(r - destRow) <= 1 && Math.abs(c - destCol) <= 1) {
-        // unlock this specific jar
-        const unlockedJar = jars.splice(j, 1)[0];
-        for (let k = 0; k < unlockedJar.height; k++) {
-          const cr = unlockedJar.startRow + k;
-          const cc = unlockedJar.col;
-          const cell = grid[cr][cc];
-          if (cell) {
-            if (cell.kind === 'fruit' && cell.lockedBy === unlockedJar.id) {
-              delete cell.lockedBy;
-            } else if (cell.kind === 'lock' && cell.lockedBy === unlockedJar.id) {
-              grid[cr][cc] = null;
-            }
-          }
+    if (JAR_REQUIRE_ADJACENT) {
+      let near = false;
+      for (let i = 0; i < jar.height; i++) {
+        const r = jar.startRow + i;
+        const c = jar.col;
+        if (Math.abs(r - destRow) <= 1 && Math.abs(c - destCol) <= 1) {
+          near = true;
+          break;
         }
-        return true;
       }
+      if (!near) continue;
+    }
+    const prev = typeof jar.hp === 'number' ? jar.hp : 2;
+    jar.hp = prev - 1;
+    if (jar.hp > 0 && SFX.glass_hit) SFX.glass_hit.play();
+    if (jar.hp <= 0) {
+      unlockJarByIndex(j);
+      if (SFX.glass_unlock) SFX.glass_unlock.play();
+      j--; // adjust index after removal
     }
   }
-  return false;
 }
 
 function renderEffects() {
@@ -716,6 +848,7 @@ function renderEffects() {
   const items = fxQueue.slice();
   fxQueue = [];
   for (const fx of items) {
+    if (fx.text === 'drop') continue; // internal marker, not a visual effect
     const sel = `.fm-cell[data-row="${fx.row}"][data-col="${fx.col}"]`;
     const cellEl = boardEl.querySelector(sel);
     if (!cellEl) continue;
@@ -724,6 +857,7 @@ function renderEffects() {
     el.className = 'fm-fx-bonus' + (fx.big ? ' fm-fx-bonus--big' : '');
     el.textContent = fx.text;
     cellEl.appendChild(el);
+    if (fx.big && SFX.score_pop) SFX.score_pop.play(0.5);
     setTimeout(() => el.remove(), 1000);
   }
 }
