@@ -48,6 +48,15 @@ const movesEl = document.getElementById("fm-moves");
 const newBtn = document.getElementById("fm-new");
 const targetEl = document.getElementById("fm-target");
 
+// Target / bonus system
+let targetLevel = null;
+const TARGET_BONUS =500;
+function pickNewTarget() {
+ const min =2;
+ const max = Math.min(FRUITS.length -1,7);
+ targetLevel = randInt(min, max);
+}
+
 // ====================
 // HJELPERE
 // ====================
@@ -398,7 +407,7 @@ function startNewGame() {
     selected = null;
     gameOver = false;
     initGrid();
-    pickNewTarget();
+    if (typeof pickNewTarget === 'function') pickNewTarget(); else targetLevel = null;
     renderGrid();
 }
 
