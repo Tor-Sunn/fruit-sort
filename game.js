@@ -7,6 +7,8 @@
 
 const ROWS = 9;
 const COLS = 9;
+// If false: game over triggers when no merges remain (top row fullness not required)
+const GAME_OVER_REQUIRE_TOP_FULL = false;
 
 // Frukttypene dine (nivåer).
 // Bildene må ligge i ./img som vist i skjermbildet ditt.
@@ -52,36 +54,83 @@ let hintPair = null; // { from:{row,col}, to:{row,col} }
 let refillCounter = 0; // count refills triggered by no-merge states
 let jars = []; // [{id,col,startRow,height,targetLevel}]
 let fxQueue = []; // queued UI effects
+let dailyMode = false;
+let dailyDateStr = null; // YYYY-MM-DD
+let rng = Math.random; // RNG used for board generation
 // --- SOUND ---
 const SFX_ENABLED = true;
 let lastDropSoundAt = 0;
 let SFX_VERSION = Date.now(); // cache bust; update manually if needed
+let SFX_EXT_OVERRIDE = null; // 'ogg' | 'mp3' | 'wav' | null
+let SFX_MASTER = 1.0;
+let SFX_MUTE = {};
+let SFX_VOL = {};
 function buildAudioSrc(name) {
   const probe = document.createElement('audio');
-  const canOgg = !!probe.canPlayType && probe.canPlayType('audio/ogg') !== '';
-  return canOgg ? `sound/${name}.ogg?v=${SFX_VERSION}` : `sound/${name}.wav?v=${SFX_VERSION}`;
+  const exts = [];
+  // Preferred order
+  if (probe.canPlayType && probe.canPlayType('audio/ogg') !== '') exts.push('ogg');
+  if (probe.canPlayType && probe.canPlayType('audio/mp3') !== '') exts.push('mp3');
+// Daily / Global controls
+const dailyBtn = document.getElementById('fm-daily');
+const globalBtn = document.getElementById('fm-global');
+const dailyDateInput = document.getElementById('fm-daily-date');
+  if (probe.canPlayType && probe.canPlayType('audio/wav') !== '') exts.push('wav');
+  // Fallback order if none reported as playable
+  if (!exts.length) exts.push('ogg', 'mp3', 'wav');
+  const chosen =
+    SFX_EXT_OVERRIDE && ['ogg', 'mp3', 'wav'].includes(SFX_EXT_OVERRIDE)
+      ? [SFX_EXT_OVERRIDE]
+      : exts;
+  return chosen.map((ext) => `sound/${name}.${ext}?v=${SFX_VERSION}`);
 }
 function createSfx(name, volume = 0.35) {
-  const src = buildAudioSrc(name);
-  const base = new Audio(src);
-  base.preload = 'auto';
-  base.addEventListener('error', () => {
-    console.warn('[SFX] Failed loading', name, 'src:', src);
-  });
-  base.addEventListener(
-    'canplaythrough',
-    () => {
-      console.log('[SFX] Ready', name);
-    },
-    { once: true }
-  );
+  const srcCandidates = buildAudioSrc(name);
+  let chosen = null;
+  let base = null;
+  function pickNext(i) {
+    if (i >= srcCandidates.length) {
+      console.warn('[SFX] No playable source found for', name, srcCandidates);
+      return;
+    }
+    const src = srcCandidates[i];
+    const audio = new Audio(src);
+    audio.preload = 'auto';
+    audio.addEventListener(
+      'error',
+      () => {
+        console.warn('[SFX] Error loading', name, '->', src, 'trying next');
+        pickNext(i + 1);
+      },
+      { once: true }
+    );
+    audio.addEventListener(
+      'canplaythrough',
+      () => {
+        if (!chosen) {
+          chosen = src;
+          base = audio;
+          console.log('[SFX] Ready', name, 'using', chosen);
+        }
+      },
+      { once: true }
+    );
+  }
+  pickNext(0);
   return {
     play(overVolume) {
-      if (!SFX_ENABLED) return;
+      if (!SFX_ENABLED || !chosen || !base) return;
+      if (SFX_MUTE && SFX_MUTE[name]) return;
       try {
         const a = base.cloneNode(true);
-        a.volume = typeof overVolume === 'number' ? overVolume : volume;
-        a.play().catch(() => {});
+        let vol = typeof overVolume === 'number' ? overVolume : volume;
+        if (SFX_VOL && typeof SFX_VOL[name] === 'number') vol = SFX_VOL[name];
+        vol = Math.max(0, Math.min(1, vol));
+        vol = Math.max(0, Math.min(1, vol * (typeof SFX_MASTER === 'number' ? SFX_MASTER : 1)));
+        a.volume = vol;
+        a.play().catch((err) => {
+          console.warn('[SFX] playback promise rejected', name, err);
+        });
       } catch (err) {
         console.warn('[SFX] play failed', name, err);
       }
@@ -90,7 +139,7 @@ function createSfx(name, volume = 0.35) {
 }
 function buildSfxRegistry() {
   return {
-    merge: createSfx('merge', 0.35),
+    merge: createSfx('merge', 0.5),
     upgrade: createSfx('upgrade', 0.4),
     bonus_target: createSfx('bonus_target', 0.55),
     leaf_hit: createSfx('leaf_hit', 0.25),
@@ -113,15 +162,55 @@ window.fmReloadSounds = function fmReloadSounds() {
   SFX = buildSfxRegistry();
   console.log('[SFX] Reloaded with version', SFX_VERSION);
 };
+window.fmMuteSfx = function fmMuteSfx(name, muted = true) {
+  SFX_MUTE[name] = !!muted;
+};
+window.fmSetSfxVolume = function fmSetSfxVolume(name, vol) {
+  const v = Number(vol);
+  if (!Number.isFinite(v)) return;
+  SFX_VOL[name] = Math.max(0, Math.min(1, v));
+};
+window.fmSetMasterVolume = function fmSetMasterVolume(vol) {
+  const v = Number(vol);
+  if (!Number.isFinite(v)) return;
+  SFX_MASTER = Math.max(0, Math.min(1, v));
+};
+window.fmUnmuteAll = function fmUnmuteAll() {
+  SFX_MUTE = {};
+};
+window.fmSetSfxExt = function fmSetSfxExt(ext) {
+  if (ext === null || ext === undefined || ext === 'auto') {
+    SFX_EXT_OVERRIDE = null;
+  } else if (['ogg', 'mp3', 'wav'].includes(ext)) {
+    SFX_EXT_OVERRIDE = ext;
+  } else {
+    console.warn('[SFX] Unknown ext. Use one of: ogg|mp3|wav|auto');
+    return;
+  }
+  SFX_VERSION = Date.now();
+  SFX = buildSfxRegistry();
+  console.log('[SFX] Forced ext =', SFX_EXT_OVERRIDE || 'auto', 'version', SFX_VERSION);
+};
+window.fmListSfx = function fmListSfx() {
+  const names = Object.keys(SFX);
+  console.log('[SFX] Available:', names.join(', '));
+  return names;
+};
 // --- DOM ---
 
 const boardEl = document.getElementById('fm-board');
-const scoreEl = document.getElementById('fm-score');
 const movesEl = document.getElementById('fm-moves');
 const newBtn = document.getElementById('fm-new');
 const hintBtn = document.getElementById('fm-hint');
 const targetEl = document.getElementById('fm-target');
 const chartEl = document.getElementById('fm-merge-chart');
+// Game over overlay references
+const gameOverEl = document.getElementById('fm-gameover');
+const finalScoreEl = document.getElementById('fm-final-score');
+const highScoreForm = document.getElementById('fm-highscore-form');
+const playerNameInput = document.getElementById('fm-player-name');
+const highScoresEl = document.getElementById('fm-highscores');
+const restartBtn = document.getElementById('fm-restart-btn');
 
 // Target / bonus system (progressive: starts low, increases gradually)
 let targetLevel = null;
@@ -134,11 +223,33 @@ function pickNewTarget() {
 }
 
 // ====================
+// REMOTE HIGHSCORES API (configurable)
+// ====================
+// Default to local relative API paths for Fruit Merge (separate from nm)
+const API_BASE_DEFAULT = 'api';
+let API_ENDPOINTS = {
+  save: API_BASE_DEFAULT + '/save-fruit-score.php',
+  saveDaily: API_BASE_DEFAULT + '/save-fruit-score-daily.php',
+  get: API_BASE_DEFAULT + '/get-fruit-scores.php',
+  getDaily: API_BASE_DEFAULT + '/get-fruit-daily.php',
+};
+window.fmSetApi = function fmSetApi(map) {
+  if (!map || typeof map !== 'object') return;
+  API_ENDPOINTS = { ...API_ENDPOINTS, ...map };
+};
+window.fmGetApi = function fmGetApi() {
+  return { ...API_ENDPOINTS };
+};
+
+// ====================
 // HJELPERE
 // ====================
 
+function rand() {
+  return rng();
+}
 function randInt(min, max) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
+  return Math.floor(rand() * (max - min + 1)) + min;
 }
 
 function createRandomFruit() {
@@ -147,7 +258,7 @@ function createRandomFruit() {
 }
 
 function createRandomCell() {
-  if (Math.random() < LEAF_PROBABILITY) {
+  if (rand() < LEAF_PROBABILITY) {
     return { kind: 'leaf', hp: randInt(1, 4) };
   }
   return createRandomFruit();
@@ -320,20 +431,26 @@ function removeNeighborLeaves(row, col) {
 
 // Fyll kun tomme celler i toppen av hver kolonne
 function refillFromTop() {
+  let spawned = false;
   for (let c = 0; c < COLS; c++) {
+    // Fyll alle ledige ruter fra toppen og ned til første hindring
     for (let r = 0; r < ROWS; r++) {
       if (grid[r][c] === null) {
-        grid[r][c] = createRandomCell();
-        // mark for drop animation
+        const cell = createRandomCell();
+        // Merk kun nye frukter som "newSpawn" slik at kun de faller i gravity
+        if (cell && cell.kind === 'fruit') {
+          cell.newSpawn = true;
+        }
+        grid[r][c] = cell;
         fxQueue.push({ row: r, col: c, text: 'drop' });
+        spawned = true;
       } else {
-        // denne kolonnen er fylt fra toppen ned til første frukt/blad
+        // Første hindring; stopp fylling i denne kolonnen
         break;
       }
     }
   }
-  // play refill sound once if any drops were added
-  if (SFX.refill && fxQueue.some((f) => f.text === 'drop')) {
+  if (spawned && SFX.refill) {
     SFX.refill.play();
   }
 }
@@ -341,15 +458,14 @@ function refillFromTop() {
 // Gravity: collapse each column so non-null cells slide down, preserving order
 function applyGravity() {
   let moved = false;
-  // Repeat passes until no fruit can fall further
+  // Bare nye frukter (newSpawn) kan falle; eksisterende holder seg i ro
   for (let pass = 0; pass < ROWS; pass++) {
     let any = false;
     for (let c = 0; c < COLS; c++) {
       for (let r = ROWS - 2; r >= 0; r--) {
         const cur = grid[r][c];
         const below = grid[r + 1][c];
-        // Only fruits fall; any non-null below (fruit/leaf/lock) blocks
-        if (cur && cur.kind === 'fruit' && below === null) {
+        if (cur && cur.kind === 'fruit' && cur.newSpawn && below === null) {
           grid[r + 1][c] = cur;
           grid[r][c] = null;
           fxQueue.push({ row: r + 1, col: c, text: 'drop' });
@@ -359,6 +475,20 @@ function applyGravity() {
       }
     }
     if (!any) break;
+  }
+  // Fjern newSpawn-flagget når frukten har landet
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const cell = grid[r][c];
+      if (cell && cell.kind === 'fruit' && cell.newSpawn) {
+        const below = r + 1 < ROWS ? grid[r + 1][c] : null;
+        if (below !== null) {
+          delete cell.newSpawn;
+        } else if (r === ROWS - 1) {
+          delete cell.newSpawn;
+        }
+      }
+    }
   }
   if (moved) {
     const now = performance.now();
@@ -445,18 +575,131 @@ function hasAnyMergeMove() {
   return false;
 }
 
-// Topp rad helt full + ingen mulige merges = game over
+// Game over detection (flexible)
 function checkGameOver() {
-  let topFull = true;
-  for (let c = 0; c < COLS; c++) {
-    if (grid[0][c] === null) {
-      topFull = false;
-      break;
+  if (hasAnyMergeMove()) return false;
+  if (GAME_OVER_REQUIRE_TOP_FULL) {
+    for (let c = 0; c < COLS; c++) {
+      if (grid[0][c] === null) return false;
     }
   }
-  if (!topFull) return false;
-  if (hasAnyMergeMove()) return false;
   return true;
+}
+
+// High score handling
+function loadHighScores() {
+  try {
+    const raw = localStorage.getItem('fmHighScores');
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.slice(0, 50) : [];
+  } catch (_) {
+    return [];
+  }
+}
+function saveHighScores(list) {
+  try {
+    localStorage.setItem('fmHighScores', JSON.stringify(list));
+  } catch (_) {}
+}
+function renderHighScores() {
+  if (!highScoresEl) return;
+  const list = loadHighScores().sort((a, b) => b.score - a.score || a.moves - b.moves);
+  const frag = document.createDocumentFragment();
+
+  // Local scores
+  const lh = document.createElement('h3');
+  lh.textContent = 'Local High Scores';
+  frag.appendChild(lh);
+  const lol = document.createElement('ol');
+  list.slice(0, 20).forEach((it, i) => {
+    const li = document.createElement('li');
+    li.textContent = `${i + 1}. ${it.name || 'Player'} — ${it.score} pts, ${it.moves} moves`;
+    lol.appendChild(li);
+  });
+  frag.appendChild(lol);
+
+  // Remote (optional)
+  const api = window.fmGetApi && window.fmGetApi();
+  const hasRemote = api && (api.get || api.getDaily || api.save || api.saveDaily);
+  if (hasRemote) {
+    const today = new Date().toISOString().slice(0, 10);
+    const dstr = dailyMode ? (dailyDateStr || today) : today;
+    Promise.all([
+      api.get ? fetch(api.get).then(r=>r.json()).catch(()=>[]) : Promise.resolve([]),
+      api.getDaily ? fetch(api.getDaily + '?date=' + dstr.replaceAll('-','')).then(r=>r.json()).catch(()=>[]) : Promise.resolve([])
+    ]).then(([global, daily]) => {
+      const gHead = document.createElement('h3');
+      gHead.textContent = 'Global High Scores';
+      frag.appendChild(gHead);
+      const gOl = document.createElement('ol');
+      (Array.isArray(global)?global:(global.scores||[])).slice(0,20).forEach((it,i)=>{
+        const li=document.createElement('li');
+        li.textContent = `${i+1}. ${it.name||'Player'} — ${it.score} pts${it.moves?`, ${it.moves} moves`:''}`;
+        gOl.appendChild(li);
+      });
+      frag.appendChild(gOl);
+
+      const dHead = document.createElement('h3');
+      dHead.textContent = `Daily ${dstr}`;
+      frag.appendChild(dHead);
+      const dOl = document.createElement('ol');
+      (Array.isArray(daily)?daily:(daily.scores||[])).slice(0,20).forEach((it,i)=>{
+        const li=document.createElement('li');
+        li.textContent = `${i+1}. ${it.name||'Player'} — ${it.score} pts${it.moves?`, ${it.moves} moves`:''}`;
+        dOl.appendChild(li);
+      });
+      frag.appendChild(dOl);
+
+      highScoresEl.innerHTML = '';
+      highScoresEl.appendChild(frag);
+    }).catch(()=>{
+      highScoresEl.innerHTML = '';
+      highScoresEl.appendChild(frag);
+    });
+  } else {
+    highScoresEl.innerHTML = '';
+    highScoresEl.appendChild(frag);
+  }
+}
+function showGameOver() {
+  if (!gameOverEl) return;
+  finalScoreEl.textContent = `Final score: ${score} (Moves: ${moves})`;
+  renderHighScores();
+  gameOverEl.classList.remove('fm-hidden');
+  playerNameInput && playerNameInput.focus();
+}
+function hideGameOver() {
+  if (gameOverEl) gameOverEl.classList.add('fm-hidden');
+}
+if (highScoreForm) {
+  highScoreForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const name = (playerNameInput && playerNameInput.value.trim()) || 'Player';
+    const entry = { name, score, moves, time: Date.now() };
+    const list = loadHighScores();
+    list.push(entry);
+    saveHighScores(list);
+    // Optional remote submit
+    const api = window.fmGetApi && window.fmGetApi();
+    if (api && (api.save || api.saveDaily)) {
+      const yyyymmdd = (dailyMode ? (dailyDateStr || new Date().toISOString().slice(0,10)) : new Date().toISOString().slice(0,10)).replaceAll('-','');
+      const tasks = [];
+      if (api.save) tasks.push(fetch(api.save, {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:new URLSearchParams({name, score:String(score), diff:'normal'})}));
+      if (api.saveDaily) tasks.push(fetch(api.saveDaily, {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:new URLSearchParams({name, score:String(score), diff:'normal', date: yyyymmdd})}));
+      Promise.allSettled(tasks).finally(()=>renderHighScores());
+    } else {
+      renderHighScores();
+    }
+    if (SFX.score_pop) SFX.score_pop.play(0.5);
+  });
+}
+if (restartBtn) {
+  restartBtn.addEventListener('click', () => {
+    if (SFX.click) SFX.click.play(0.3);
+    hideGameOver();
+    startNewGame();
+  });
 }
 
 // ====================
@@ -546,8 +789,6 @@ function handleCellClick(row, col) {
 
   // play merge sound
   if (SFX && SFX.merge) SFX.merge.play();
-  // play upgrade (slightly after merge for layering)
-  if (SFX && SFX.upgrade) setTimeout(() => SFX.upgrade.play(), 20);
 
   // score – per merge scaled by level
   score += MERGE_POINTS_BASE * (newLevel + 1) + MERGE_LEVEL_BONUS * (newLevel * newLevel);
@@ -579,14 +820,21 @@ function handleCellClick(row, col) {
   // When no merges remain, let fruits fall and then refill so it's clear
   if (!hasAnyMergeMove()) {
     applyGravity();
-    // First refill the board so we have solid columns, then potentially place jars
     refillFromTop();
-    // Let newly spawned cells fall down to first obstacle
-    applyGravity();
-    refillCounter += 1;
-    if (refillCounter % 3 === 0) {
-      spawnJars(1);
-    }
+    setTimeout(() => {
+      applyGravity();
+      refillCounter += 1;
+      if (refillCounter % 3 === 0) spawnJars(1);
+      if (checkGameOver()) {
+        gameOver = true;
+        renderGrid();
+        if (SFX.game_over) SFX.game_over.play();
+        showGameOver();
+        return;
+      }
+      renderGrid();
+    }, 140);
+    return;
   }
 
   // Game over-sjekk
@@ -595,7 +843,7 @@ function handleCellClick(row, col) {
     renderGrid();
     setTimeout(() => {
       if (SFX.game_over) SFX.game_over.play();
-      alert('Game Over – no space left at the top and no more merges!');
+      showGameOver();
     }, 10);
     return;
   }
@@ -627,7 +875,7 @@ if (hintBtn) {
     if (gameOver) return;
     const pair = findAnyMergePair();
     if (!pair) {
-      alert('Ingen mulige merges akkurat nå.');
+      alert('No possible merges right now.');
       return;
     }
     // Deduct points only when we actually show a hint
@@ -636,6 +884,31 @@ if (hintBtn) {
     selected = { row: pair.from.row, col: pair.from.col };
     if (SFX.hint) SFX.hint.play();
     renderGrid();
+  });
+}
+
+// Daily/Global buttons
+if (dailyBtn) {
+  // Default date to today if empty
+  if (dailyDateInput && !dailyDateInput.value) {
+    dailyDateInput.value = new Date().toISOString().slice(0, 10);
+  }
+  dailyBtn.addEventListener('click', () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const d = dailyDateInput && dailyDateInput.value ? dailyDateInput.value : today;
+    if (d > today) {
+      alert('That date is in the future.');
+      return;
+    }
+    startDailyGameFor(d);
+  });
+}
+if (globalBtn) {
+  globalBtn.addEventListener('click', () => {
+    dailyMode = false;
+    dailyDateStr = null;
+    rng = Math.random;
+    startNewGame();
   });
 }
 
@@ -649,6 +922,7 @@ function startNewGame() {
   refillCounter = 0;
   jars = [];
   nextJarId = 1;
+  hideGameOver();
   // Ensure a solvable start (at least one merge available), and start without leaves
   // to reduce early blockers. Retry a few times if necessary.
   let attempts = 0;
@@ -667,6 +941,32 @@ function startNewGame() {
 
 // start første spillet
 startNewGame();
+
+// ====================
+// DAILY MODE (seeded RNG by date)
+// ====================
+function seedFromString(str) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+function mulberry32(a) {
+  return function () {
+    let t = (a += 0x6d2b79f5);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function startDailyGameFor(dateStr) {
+  dailyMode = true;
+  dailyDateStr = dateStr;
+  rng = mulberry32(seedFromString('fruit-merge:' + dateStr));
+  startNewGame();
+}
 
 // Finn og returner en gyldig merge (første funn)
 function findAnyMergePair() {

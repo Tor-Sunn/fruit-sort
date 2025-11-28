@@ -16,6 +16,15 @@
           <button id="fm-hint" class="fm-btn" title="Show a possible merge (costs 300)">
             Hint (-300)
           </button>
+          <input id="fm-daily-date" type="date" class="fm-date" />
+          <button
+            id="fm-daily"
+            class="fm-btn"
+            title="Play the daily board for selected date (no future dates)"
+          >
+            Daily
+          </button>
+          <button id="fm-global" class="fm-btn" title="Play a normal random board">Global</button>
           <button id="fm-new" class="fm-btn">New game</button>
         </div>
         <p class="fm-sub">
@@ -31,6 +40,28 @@
       <main>
         <div id="fm-merge-chart" class="fm-chart" aria-label="Merge chart"></div>
         <div id="fm-board" class="fm-board"></div>
+        <!-- Game over / high score overlay -->
+        <div
+          id="fm-gameover"
+          class="fm-gameover fm-hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="fm-gameover-title"
+        >
+          <div class="fm-gameover-inner">
+            <h2 id="fm-gameover-title">Game Over</h2>
+            <p id="fm-final-score"></p>
+            <form id="fm-highscore-form" autocomplete="off">
+              <label class="fm-go-label"
+                >Name
+                <input id="fm-player-name" type="text" maxlength="16" placeholder="Player" />
+              </label>
+              <button type="submit" class="fm-btn fm-go-save">Save score</button>
+            </form>
+            <button id="fm-restart-btn" class="fm-btn fm-go-restart">Play again</button>
+            <div id="fm-highscores" class="fm-highscores" aria-label="High scores"></div>
+          </div>
+        </div>
       </main>
     </div>
 

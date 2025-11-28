@@ -337,6 +337,95 @@ body {
   z-index: 4;
 }
 
+/* === Game Over Overlay === */
+.fm-hidden {
+  display: none;
+}
+.fm-gameover {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 50;
+  padding: 24px;
+}
+.fm-hidden {
+  display: none !important;
+}
+.fm-gameover.fm-hidden {
+  display: none !important;
+}
+.fm-gameover-inner {
+  width: 100%;
+  max-width: 420px;
+  background: linear-gradient(165deg, #0f172a 0%, #1e293b 60%, #0f172a 100%);
+  border-radius: 28px;
+  padding: 28px 30px 32px;
+  box-shadow: 0 30px 70px -12px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.02);
+}
+.fm-gameover-inner h2 {
+  margin: 0 0 12px;
+  font-size: 28px;
+  letter-spacing: 0.5px;
+}
+.fm-gameover-inner p {
+  margin: 0 0 16px;
+  font-size: 16px;
+}
+.fm-go-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #93c5fd;
+}
+#fm-player-name {
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 1px solid #1e3a8a;
+  background: #0f172a;
+  color: #e5e7eb;
+  font-size: 14px;
+  outline: none;
+}
+#fm-player-name:focus {
+  border-color: #2563eb;
+}
+.fm-highscores {
+  margin-top: 20px;
+  font-size: 13px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 18px;
+  padding: 12px 14px;
+  max-height: 220px;
+  overflow-y: auto;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+.fm-highscores h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+.fm-highscores ol {
+  margin: 0;
+  padding-left: 20px;
+}
+.fm-highscores li {
+  margin: 0 0 4px;
+  line-height: 1.35;
+}
+.fm-go-save,
+.fm-go-restart {
+  margin-top: 14px;
+}
+#fm-highscore-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 /* Smaller screens */
 
 @media (max-width: 700px) {
