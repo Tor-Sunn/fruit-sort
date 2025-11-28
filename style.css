@@ -1,3 +1,9 @@
+/* Size variables for responsive board */
+:root {
+  --cell: 87px; /* tile size */
+  --gap: 12px; /* space between tiles */
+  --pad: 14px; /* board inner padding */
+}
 /* === Layout / page === */
 
 *,
@@ -8,19 +14,22 @@
 
 body {
   margin: 0;
-  min-height: 100vh;
+  min-height: 100svh; /* dynamic viewport height on mobile (iOS/iPad) */
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  background: radial-gradient(circle at top, #1f2937 0, #020617 55%, #020617 100%);
-  color: #e5e7eb;
+  background: #f2f5fb;
+  color: #0f172a;
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding: 32px 16px;
+  padding: 20px 12px calc(env(safe-area-inset-bottom, 0px) + 8px);
+  overscroll-behavior-y: contain; /* prevent parent page from scrolling while interacting */
 }
 
 .fm-wrapper {
   width: 100%;
   max-width: 960px;
+  display: flex;
+  flex-direction: column;
 }
 
 /* === Header / stats === */
@@ -34,37 +43,85 @@ body {
   font-size: 32px;
 }
 
-.fm-stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: center;
-  font-size: 14px;
-  margin-bottom: 6px;
-}
-
-.fm-stats span {
-  background: rgba(15, 23, 42, 0.9);
-  padding: 4px 10px;
-  border-radius: 999px;
+.fm-mode {
+  background: #e8eefc;
+  color: #1e40af;
+  font-weight: 700;
 }
 
 .fm-sub {
   margin: 4px 0 12px;
   font-size: 14px;
-  color: #9ca3af;
+  color: #334155;
+}
+
+.fm-stats--sub {
+  margin-top: 6px;
+}
+
+/* Section title (e.g., Merge Order) */
+.fm-section-title {
+  margin: 6px 0 8px;
+  font-size: 16px;
+  color: #1e3a8a;
+  letter-spacing: 0.2px;
 }
 
 .fm-btn {
   padding: 6px 14px;
   border-radius: 999px;
-  border: none;
+  border: 1px solid #c7d2fe;
   cursor: pointer;
   font-weight: 600;
   font-size: 14px;
-  background: #22c55e;
-  color: #022c22;
-  box-shadow: 0 8px 18px rgba(16, 185, 129, 0.4);
+  background: #e0e7ff;
+  color: #1e3a8a;
+  box-shadow: none;
+}
+.fm-btn:hover {
+  background: #dbeafe;
+}
+.fm-btn--sm {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+/* Active toggle state */
+.fm-btn.is-active {
+  background: #c7d2fe;
+  border-color: #93c5fd;
+  color: #1e3a8a;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.18) inset;
+}
+
+/* Date input */
+.fm-date {
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid #bfdbfe;
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 14px;
+}
+
+/* Hint attention pulse */
+@keyframes fm-attn-pulse {
+  0% {
+    transform: translateY(0) scale(1);
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+  }
+  50% {
+    transform: translateY(-1px) scale(1.03);
+    box-shadow: 0 8px 18px rgba(59, 130, 246, 0.25);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+  }
+}
+.fm-btn.fm-attn {
+  animation: fm-attn-pulse 1.6s ease-in-out infinite;
+  border-color: #93c5fd;
 }
 
 /* target */
@@ -74,12 +131,34 @@ body {
   gap: 8px;
   padding: 6px 10px;
   border-radius: 999px;
-  background: rgba(14, 165, 233, 0.08);
-  color: #bae6fd;
+  background: #eff6ff;
+  color: #1e40af;
 }
 .fm-target-img {
   width: 22px;
   height: 22px;
+}
+
+/* Big target display */
+.fm-target-big {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #e6f0ff;
+  color: #1e3a8a;
+  box-shadow: inset 0 0 0 1px #c7d2fe;
+}
+.fm-target-big .fm-target-img--big {
+  width: 36px;
+  height: 36px;
+}
+.fm-target-big-label {
+  font-size: 12px;
+  font-weight: 700;
+  opacity: 0.85;
 }
 
 /* === Merge chart === */
@@ -91,21 +170,23 @@ body {
   align-items: center;
   margin: 8px 0 12px;
   font-size: 14px;
-  color: #9ca3af;
+  color: #334155;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .fm-chart .fm-chart-item {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: rgba(14, 165, 233, 0.08);
+  background: #e8eefc;
   padding: 6px 10px;
   border-radius: 999px;
 }
 
 .fm-chart .fm-chart-img {
-  width: 22px;
-  height: 22px;
+  width: 26px; /* +18% from 22px (~20% target) */
+  height: 26px;
 }
 
 .fm-chart .fm-chart-arrow {
@@ -175,14 +256,15 @@ body {
 
 .fm-board {
   margin-top: 8px;
-  padding: 14px;
+  padding: var(--pad);
   border-radius: 24px;
-  background: rgba(15, 23, 42, 0.96);
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+  background: #111827; /* slightly lighter than before */
+  box-shadow: 0 22px 56px rgba(2, 6, 23, 0.28);
   display: grid;
-  grid-template-columns: repeat(9, 87px);
-  grid-auto-rows: 87px;
-  gap: 12px;
+  width: 100%;
+  grid-template-columns: repeat(9, var(--cell));
+  grid-auto-rows: var(--cell);
+  gap: var(--gap);
   justify-content: center;
   position: relative; /* allow absolute jar overlay */
 }
@@ -191,11 +273,11 @@ body {
 
 .fm-cell {
   position: relative;
-  width: 87px;
-  height: 87px;
+  width: var(--cell);
+  height: var(--cell);
   border-radius: 24px;
-  background: #020617;
-  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.65);
+  background: #1a2340; /* lighter tiles for better visibility */
+  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -205,8 +287,8 @@ body {
 
 .fm-cell:hover {
   transform: translateY(-2px);
-  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.8);
-  background: #030712;
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.7);
+  background: #202a4a;
 }
 
 .fm-cell--selected {
@@ -220,8 +302,8 @@ body {
 }
 
 .fm-cell--empty {
-  background: #020617;
-  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.9);
+  background: #18243f; /* lighter than board to keep the grid visible */
+  box-shadow: inset 0 0 0 2px rgba(148, 163, 184, 0.15), 0 5px 14px rgba(0, 0, 0, 0.35);
 }
 
 /* Fruit / leaf art */
@@ -233,6 +315,28 @@ body {
   object-fit: contain;
   pointer-events: none;
   user-select: none;
+}
+
+/* Bomb icon inside cells */
+.fm-bomb-img {
+  width: 84%;
+  height: 84%;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.35));
+}
+
+/* Explosion sprite overlay */
+.fm-explosion {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  z-index: 10; /* above jar overlays */
 }
 
 /* Leaf badge "blocker" counter (optional for senere) */
@@ -360,10 +464,10 @@ body {
 .fm-gameover-inner {
   width: 100%;
   max-width: 420px;
-  background: linear-gradient(165deg, #0f172a 0%, #1e293b 60%, #0f172a 100%);
+  background: #ffffff;
   border-radius: 28px;
   padding: 28px 30px 32px;
-  box-shadow: 0 30px 70px -12px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.02);
+  box-shadow: 0 30px 70px -12px rgba(15, 23, 42, 0.25), 0 0 0 1px rgba(2, 6, 23, 0.05);
 }
 .fm-gameover-inner h2 {
   margin: 0 0 12px;
@@ -385,11 +489,14 @@ body {
 #fm-player-name {
   padding: 10px 14px;
   border-radius: 14px;
-  border: 1px solid #1e3a8a;
-  background: #0f172a;
-  color: #e5e7eb;
+  border: 1px solid #bfdbfe;
+  background: #ffffff;
+  color: #0f172a;
   font-size: 14px;
   outline: none;
+}
+#fm-player-name:focus {
+  border-color: #2563eb;
 }
 #fm-player-name:focus {
   border-color: #2563eb;
@@ -397,12 +504,12 @@ body {
 .fm-highscores {
   margin-top: 20px;
   font-size: 13px;
-  background: rgba(255, 255, 255, 0.03);
+  background: #f8fafc;
   border-radius: 18px;
   padding: 12px 14px;
   max-height: 220px;
   overflow-y: auto;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  box-shadow: inset 0 0 0 1px #e2e8f0;
 }
 .fm-highscores h3 {
   margin: 0 0 10px;
@@ -429,17 +536,47 @@ body {
 /* Smaller screens */
 
 @media (max-width: 700px) {
-  .fm-board {
-    grid-template-columns: repeat(9, 65px);
-    grid-auto-rows: 65px;
-    gap: 10px;
-    padding: 14px;
+  /* Reduce page padding to maximize board space */
+  body {
+    padding: 8px 6px;
   }
 
+  /* Use big target on mobile; hide small pill */
+  .fm-target-span {
+    display: none;
+  }
+  .fm-target-big {
+    display: inline-flex;
+  }
+
+  /* Make chart horizontally scrollable and larger for readability */
+  .fm-chart {
+    flex-wrap: nowrap;
+  }
+  .fm-chart .fm-chart-item {
+    padding: 8px 12px;
+  }
+  .fm-chart .fm-chart-img {
+    width: 34px;
+    height: 34px;
+  }
+
+  /* Board and cell sizing now controlled by CSS variables set via JS fitter */
   .fm-cell {
-    width: 65px;
-    height: 65px;
     border-radius: 20px;
+  }
+
+  /* Allow board to extend vertically; avoid clipping last row */
+  .fm-board {
+    overflow: visible;
+  }
+
+  /* Ensure `main` (board) appears before leaderboards on mobile */
+  main {
+    order: 1;
+  }
+  .fm-lb-wrap {
+    order: 2;
   }
 
   .fm-title {
@@ -448,5 +585,79 @@ body {
 
   .fm-sub {
     font-size: 13px;
+  }
+}
+
+/* === Leaderboard cards (top of page) === */
+.fm-lb-wrap {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+@media (min-width: 800px) {
+  .fm-lb-wrap {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.fm-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 10px 12px;
+  box-shadow: 0 8px 18px rgba(2, 6, 23, 0.06);
+}
+.fm-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.fm-card-title {
+  margin: 0;
+  font-size: 16px;
+  color: #1e3a8a;
+}
+.fm-lb {
+  margin: 0;
+  padding-left: 18px;
+}
+.fm-lb li {
+  margin: 2px 0;
+}
+
+/* Ultra-compact fallback: ensure 9 columns fit on very small phones
+   even if JS sizing doesn't run (e.g., cached old JS or iframe constraints). */
+@media (max-width: 480px) {
+  body {
+    padding: 4px 4px;
+  }
+  /* Show leaderboards below the board on very small screens */
+  .fm-lb-wrap {
+    display: grid;
+    grid-template-columns: 1fr;
+    order: 2;
+    margin-top: 16px;
+  }
+  .fm-board {
+    width: 100%;
+    padding: 2px; /* small internal padding so outer shadow not flush */
+    gap: 2px; /* ensure visible separation for diagonals */
+    grid-template-columns: repeat(9, minmax(0, 1fr));
+    grid-auto-rows: 1fr; /* fractional rows; cells use aspect-ratio */
+    margin-bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+  }
+  .fm-cell {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1 / 1; /* keep tiles square while shrinking */
+    border-radius: 14px; /* slightly larger radius retains separation with gap */
+    box-shadow: 0 3px 10px rgba(0,0,0,0.45); /* lighter shadow to reduce visual merging */
+  }
+  .fm-fruit-img,
+  .fm-leaf-img,
+  .fm-bomb-img {
+    width: 88%; /* add inset so edges don’t visually touch */
+    height: 88%;
   }
 }

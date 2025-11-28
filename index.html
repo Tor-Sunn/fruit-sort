@@ -2,21 +2,46 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Fruit Merge</title>
-    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="style.css?v=20251129b" />
   </head>
   <body>
     <div class="fm-wrapper">
+      <!-- Leaderboards at very top -->
+      <section class="fm-lb-wrap" aria-label="Leaderboards">
+        <div class="fm-card">
+          <div class="fm-card-head">
+            <h3 class="fm-card-title">Global Leaderboard</h3>
+            <button id="fm-lb-global-more" class="fm-btn fm-btn--sm" title="Show more">
+              Show more
+            </button>
+          </div>
+          <ol id="fm-lb-global" class="fm-lb"></ol>
+        </div>
+        <div class="fm-card">
+          <div class="fm-card-head">
+            <h3 class="fm-card-title">Daily Challenge Leaderboard</h3>
+            <button id="fm-lb-daily-more" class="fm-btn fm-btn--sm" title="Show more">
+              Show more
+            </button>
+          </div>
+          <ol id="fm-lb-daily" class="fm-lb"></ol>
+        </div>
+      </section>
       <header class="fm-header">
         <h1 class="fm-title">🍓 Fruit Merge</h1>
         <div class="fm-stats">
           <span>Score: <span id="fm-score">0</span></span>
           <span>Moves: <span id="fm-moves">0</span></span>
-          <span id="fm-target" class="fm-target-span"></span>
-          <button id="fm-hint" class="fm-btn" title="Show a possible merge (costs 300)">
-            Hint (-300)
+          <button
+            id="fm-sound-toggle"
+            class="fm-btn"
+            aria-pressed="true"
+            title="Toggle game sounds"
+          >
+            Sound: On
           </button>
-          <input id="fm-daily-date" type="date" class="fm-date" />
           <button
             id="fm-daily"
             class="fm-btn"
@@ -24,20 +49,21 @@
           >
             Daily
           </button>
+          <input id="fm-daily-date" type="date" class="fm-date" />
           <button id="fm-global" class="fm-btn" title="Play a normal random board">Global</button>
           <button id="fm-new" class="fm-btn">New game</button>
         </div>
-        <p class="fm-sub">
-          Match identical fruits in a straight line (horizontal, vertical or diagonal) with
-          <strong>no fruits or leaves in between</strong>. The merge happens in the
-          <strong>last clicked cell</strong>, and the first selected cell becomes empty. There is
-          <strong>no gravity</strong>. New fruits only drop from the top when there are
-          <strong>no possible merges</strong> left, and only into columns that are empty at the top.
-          Merge next to leaves to remove them (leaves have HP).
-        </p>
+        <div class="fm-stats fm-stats--sub">
+          <span id="fm-target-big" class="fm-target-big"></span>
+          <span id="fm-mode" class="fm-mode"></span>
+          <button id="fm-hint" class="fm-btn" title="Show a possible merge (costs 300)">
+            Hint (-300)
+          </button>
+        </div>
       </header>
 
       <main>
+        <h3 class="fm-section-title">Merge Order</h3>
         <div id="fm-merge-chart" class="fm-chart" aria-label="Merge chart"></div>
         <div id="fm-board" class="fm-board"></div>
         <!-- Game over / high score overlay -->
@@ -65,6 +91,6 @@
       </main>
     </div>
 
-    <script src="game.js"></script>
+    <script src="game.js?v=20251129b"></script>
   </body>
 </html>
