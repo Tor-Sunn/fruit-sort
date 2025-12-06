@@ -1,12 +1,12 @@
 // ==========================
-// Fruit Merge – game.js
-// 9×9 grid, fruit merge + leaves
+// Fruit Flow – game.js
+// 8×8 default grid (uniform across devices), fruit merge + leaves
 // ==========================
 
 // --- CONFIG ---
 
-const ROWS = 9;
-const COLS = 9;
+let ROWS = 9;
+let COLS = 9;
 // If false: game over triggers when no merges remain (top row fullness not required)
 const GAME_OVER_REQUIRE_TOP_FULL = false;
 
@@ -41,6 +41,11 @@ const MERGE_POINTS_BASE = 10; // base points
 const MERGE_LEVEL_BONUS = 6; // extra scaling per level^2 to reward higher merges
 const TARGET_BONUS_BASE = 300; // base bonus for hitting target fruit
 const TARGET_BONUS_PER_LEVEL = 200; // additional per fruit level
+// Laser balance configuration
+const LASER_BASE_CHANCE = 0.55; // increased chance to spawn cannon when jars spawn
+const LASER_MIN_MOVES_SINCE_LAST = 8; // reduced cooldown (moves) since last cannon despawn
+const LASER_GUARANTEE_AFTER = 5; // guarantee spawn if random failed this many jar spawn cycles
+const LASER_SCORE_PER_FRUIT = 40; // score bonus per fruit cleared by laser
 
 // --- STATE ---
 
@@ -58,6 +63,14 @@ let dailyMode = false;
 let dailyDateStr = null; // YYYY-MM-DD
 let rng = Math.random; // RNG used for board generation
 let bombsToSpawn = 0; // bombs queued to drop with next refill
+let highestFruitLevelSeen = 0; // track highest fruit level achieved
+let highScoreSubmitted = false; // track submission state per overlay
+// Laser bonus inventory and arming state
+let inventory = { laser: 0 }; // laser charges
+let cannonPos = null; // {row,col} when placed
+let cannonOrientation = 'h'; // 'h' = clear row, 'v' = clear column
+let cannonSeen = false; // tutorial popup flag
+let lastCannonGoneAtMoves = -999; // track move count at last despawn for cooldown
 // Hint attention timing
 let lastMergeAt = performance.now();
 let hintAttnTimer = null;
@@ -217,6 +230,9 @@ function buildSfxRegistry() {
     game_over: createSfx('game_over', 0.5),
     click: createSfx('click', 0.25),
     score_pop: createSfx('score_pop', 0.45),
+    bomb: createSfx('bomb', 0.6),
+    // Laser beam SFX available as sound/laser.(wav|ogg)
+    laser: createSfx('laser', 0.55),
   };
 }
 let SFX = buildSfxRegistry();
@@ -337,7 +353,8 @@ const scoreEl = document.getElementById('fm-score');
 const movesEl = document.getElementById('fm-moves');
 const newBtn = document.getElementById('fm-new');
 const hintBtn = document.getElementById('fm-hint');
-const soundToggleBtn = document.getElementById('fm-sound-toggle');
+// Sound toggle removed from UI; keep logic default ON
+const soundToggleBtn = null; // document.getElementById('fm-sound-toggle');
 // Sound preference persistence
 let fmSoundOn = true;
 function updateSoundToggleUI() {
@@ -385,6 +402,7 @@ window.fmTestSound = function fmTestSound() {
 const targetEl = document.getElementById('fm-target');
 const chartEl = document.getElementById('fm-merge-chart');
 const targetBigEl = document.getElementById('fm-target-big');
+const laserBtn = null; // Laser button removed
 // Game over overlay references
 const gameOverEl = document.getElementById('fm-gameover');
 const finalScoreEl = document.getElementById('fm-final-score');
@@ -392,11 +410,17 @@ const highScoreForm = document.getElementById('fm-highscore-form');
 const playerNameInput = document.getElementById('fm-player-name');
 const highScoresEl = document.getElementById('fm-highscores');
 const restartBtn = document.getElementById('fm-restart-btn');
+// Confirm overlay elements
+const confirmEl = document.getElementById('fm-confirm');
+const confirmMsgEl = document.getElementById('fm-confirm-msg');
+const confirmOkBtn = document.getElementById('fm-confirm-ok');
+const confirmCancelBtn = document.getElementById('fm-confirm-cancel');
 // Daily / Global controls
 const dailyBtn = document.getElementById('fm-daily');
 const globalBtn = document.getElementById('fm-global');
 const dailyDateInput = document.getElementById('fm-daily-date');
-const modeEl = document.getElementById('fm-mode');
+// Mode label removed; we rely on button active styling + date input
+const modeEl = null;
 
 // Target / bonus system (progressive: starts low, increases gradually)
 let targetLevel = null;
@@ -409,14 +433,7 @@ function pickNewTarget() {
 }
 
 function updateModeLabel() {
-  if (!modeEl) return;
-  if (dailyMode) {
-    const d = dailyDateStr || new Date().toISOString().slice(0, 10);
-    modeEl.textContent = `Daily ${d}`;
-  } else {
-    modeEl.textContent = 'Global';
-  }
-  // Toggle active button styles
+  // Only toggle active styles on buttons (label removed)
   if (dailyBtn) {
     dailyBtn.classList.toggle('is-active', !!dailyMode);
     dailyBtn.setAttribute('aria-pressed', dailyMode ? 'true' : 'false');
@@ -430,7 +447,7 @@ function updateModeLabel() {
 // ====================
 // REMOTE HIGHSCORES API (configurable)
 // ====================
-// Default to local relative API paths for Fruit Merge (separate from nm)
+// Default to local relative API paths for Fruit Flow (separate from nm)
 const API_BASE_DEFAULT = 'api';
 let API_ENDPOINTS = {
   save: API_BASE_DEFAULT + '/save-fruit-score.php',
@@ -443,8 +460,14 @@ function computeApiEndpointsFromLocation() {
   try {
     const origin = window.location.origin;
     const parts = window.location.pathname.split('/').filter(Boolean);
-    const root = parts.length ? '/' + parts[0] : '';
-    const base = origin + root + '/api';
+    // If last segment looks like a file (e.g. index.html), ignore it for root detection
+    let rootSeg = parts[0] || '';
+    if (rootSeg && /\.html?$/.test(rootSeg)) {
+      rootSeg = ''; // running from .../index.html served by live server
+    }
+    const root = rootSeg ? '/' + rootSeg : '';
+    // When served directly at http://host:port/index.html we want /api directly under origin
+    const base = origin + (root || '') + '/api';
     API_ENDPOINTS = {
       save: base + '/save-fruit-score.php',
       saveDaily: base + '/save-fruit-score-daily.php',
@@ -484,13 +507,15 @@ function fitBoardSizes() {
       document.documentElement.style.setProperty('--cell', DESKTOP_CELL + 'px');
       document.documentElement.style.setProperty('--gap', DESKTOP_GAP + 'px');
       document.documentElement.style.setProperty('--pad', DESKTOP_PAD + 'px');
+      document.documentElement.style.setProperty('--cols', String(COLS));
+      document.documentElement.style.setProperty('--rows', String(ROWS));
       return;
     }
     // Choose tighter gaps/padding for narrow screens
     let gap = vw < 420 ? 2 : vw < 480 ? 3 : vw < 600 ? 4 : 8; // raise minimum gap for clarity
     let pad = vw < 420 ? 2 : vw < 480 ? 4 : vw < 600 ? 6 : 10;
-    // Compute cell size so 9 cells + 8 gaps + 2*pad fit inside maxBoardWidth
-    let cell = Math.floor((maxBoardWidth - 2 * pad - (9 - 1) * gap) / 9);
+    // Compute cell size so COLS cells + (COLS-1) gaps + 2*pad fit inside maxBoardWidth
+    let cell = Math.floor((maxBoardWidth - 2 * pad - (COLS - 1) * gap) / COLS);
     // Clamp cell to reasonable range
     const MIN_CELL = 24; // allow tighter fit on very small phones
     cell = Math.max(MIN_CELL, Math.min(DESKTOP_CELL, cell));
@@ -498,15 +523,15 @@ function fitBoardSizes() {
     // === Vertical fit pass (ensure all 9 rows visible on short iframes/iPad) ===
     // Estimate available vertical space for the board after header + chart.
     const vh = window.innerHeight || document.documentElement.clientHeight || 0;
-    const headerH = (document.querySelector('.fm-header')?.offsetHeight || 0);
-    const chartH = (document.getElementById('fm-merge-chart')?.offsetHeight || 0);
+    const headerH = document.querySelector('.fm-header')?.offsetHeight || 0;
+    const chartH = document.getElementById('fm-merge-chart')?.offsetHeight || 0;
     // Safe-area bottom reserve (cannot read env() here; approximate +20px)
     const safeAreaApprox = 20;
     // Extra breathing room below board (buttons / spacing)
     const reserve = 40;
     const availableForBoard = Math.max(160, vh - headerH - chartH - safeAreaApprox - reserve);
     // Current computed board height with chosen sizes
-    const boardHeight = 2 * pad + 9 * cell + 8 * gap;
+    const boardHeight = 2 * pad + ROWS * cell + (ROWS - 1) * gap;
     if (boardHeight > availableForBoard) {
       // Shrink strategy: reduce pad/gap first, then cell proportionally until fits or hits MIN_CELL.
       let pad2 = pad;
@@ -515,18 +540,36 @@ function fitBoardSizes() {
       // Reduce padding and gap to minimums
       pad2 = Math.max(1, Math.min(pad2, Math.floor(pad2 * 0.6)));
       gap2 = Math.max(2, Math.min(gap2, Math.floor(gap2 * 0.75))); // keep at least 2px gap for visual separation
-      let newHeight = 2 * pad2 + 9 * cell2 + 8 * gap2;
+      let newHeight = 2 * pad2 + ROWS * cell2 + (ROWS - 1) * gap2;
       if (newHeight > availableForBoard) {
         // Compute proportional scale factor
         const ratio = availableForBoard / newHeight;
         cell2 = Math.max(MIN_CELL, Math.floor(cell2 * ratio * 0.98));
         // Recompute height
-        newHeight = 2 * pad2 + 9 * cell2 + 8 * gap2;
+        newHeight = 2 * pad2 + ROWS * cell2 + (ROWS - 1) * gap2;
         if (newHeight > availableForBoard && cell2 > MIN_CELL) {
           // Final attempt: linear reduction until fits or min cell reached
           while (newHeight > availableForBoard && cell2 > MIN_CELL) {
             cell2 -= 1;
-            newHeight = 2 * pad2 + 9 * cell2 + 8 * gap2;
+            newHeight = 2 * pad2 + ROWS * cell2 + (ROWS - 1) * gap2;
+          }
+        }
+      }
+      // iPad landscape specific: if width is ample but height is constrained, derive cell directly from height
+      const isLandscape = vw > vh;
+      const ua = navigator.userAgent || navigator.vendor || '';
+      const isIpad = /iPad|Macintosh/.test(ua) && 'ontouchend' in document;
+      if (isLandscape && isIpad) {
+        // Recompute cell to fit height tightly
+        const byH = Math.floor((availableForBoard - 2 * pad2 - (ROWS - 1) * gap2) / ROWS);
+        const MIN_CELL_IPAD = Math.max(18, MIN_CELL - 2);
+        cell2 = Math.max(MIN_CELL_IPAD, Math.min(cell2, byH));
+        // Re-evaluate height
+        let nh = 2 * pad2 + ROWS * cell2 + (ROWS - 1) * gap2;
+        if (nh > availableForBoard && cell2 > MIN_CELL_IPAD) {
+          while (nh > availableForBoard && cell2 > MIN_CELL_IPAD) {
+            cell2 -= 1;
+            nh = 2 * pad2 + ROWS * cell2 + (ROWS - 1) * gap2;
           }
         }
       }
@@ -545,12 +588,20 @@ function fitBoardSizes() {
         });
       }
     } else if (window.fmLayoutDebug) {
-      console.log('[LAYOUT] Width-only sizing OK', { cell, gap, pad, boardHeight, availableForBoard });
+      console.log('[LAYOUT] Width-only sizing OK', {
+        cell,
+        gap,
+        pad,
+        boardHeight,
+        availableForBoard,
+      });
     }
 
     document.documentElement.style.setProperty('--cell', cell + 'px');
     document.documentElement.style.setProperty('--gap', gap + 'px');
     document.documentElement.style.setProperty('--pad', pad + 'px');
+    document.documentElement.style.setProperty('--cols', String(COLS));
+    document.documentElement.style.setProperty('--rows', String(ROWS));
   } catch {}
 }
 window.addEventListener('resize', fitBoardSizes);
@@ -563,6 +614,9 @@ window.fmGetApi = function fmGetApi() {
   return { ...API_ENDPOINTS };
 };
 
+// Enable to log board assertions (off by default)
+window.fmBoardDebug = false;
+
 // ============
 // Top-of-page Leaderboards
 // ============
@@ -572,6 +626,12 @@ const lbGlobalMoreBtn = document.getElementById('fm-lb-global-more');
 const lbDailyMoreBtn = document.getElementById('fm-lb-daily-more');
 let lbGlobalExpanded = false;
 let lbDailyExpanded = false;
+// Modal leaderboard elements
+const lbOpenBtn = document.getElementById('fm-lb-open');
+const lbModal = document.getElementById('fm-lb-modal');
+const lbModalClose = document.getElementById('fm-lb-close');
+const lbModalGlobal = document.getElementById('fm-lb-modal-global');
+const lbModalDaily = document.getElementById('fm-lb-modal-daily');
 
 async function getJson(url) {
   try {
@@ -607,9 +667,14 @@ async function renderLeaderboardsTop() {
     const show = expanded ? Math.min(arr.length, 20) : Math.min(arr.length, 1);
     arr.slice(0, show).forEach((it, i) => {
       const li = document.createElement('li');
+      const hasHighest = typeof it.highest === 'number' && it.highest >= 0;
+      const highestName = hasHighest ? fruitDisplayName(it.highest) || `L${it.highest}` : null;
+      const isWatermelon = hasHighest && FRUITS[it.highest] === 'fruit_watermelon';
+      const dateStr = it.ts ? new Date(it.ts * 1000).toISOString().slice(0, 10) : null;
+      // Simplified: drop size/platform from compact top list
       li.textContent = `${i + 1}. ${it.name || 'Player'} — ${it.score} pts${
-        it.difficulty ? ' (' + it.difficulty + ')' : ''
-      }`;
+        hasHighest ? ` — Highest: ${highestName}` : ''
+      }${isWatermelon ? ' 🍉' : ''}${dateStr ? ` — ${dateStr}` : ''}`;
       el.appendChild(li);
     });
   }
@@ -630,6 +695,59 @@ lbDailyMoreBtn &&
     lbDailyMoreBtn.textContent = lbDailyExpanded ? 'Show less' : 'Show more';
     renderLeaderboardsTop();
   });
+
+// Leaderboards modal
+async function renderLeaderboardsModal() {
+  if (!lbModal || !lbModalGlobal || !lbModalDaily) return;
+  const today = new Date().toISOString().slice(0, 10);
+  const d = dailyMode ? dailyDateStr || today : today;
+  const [g, dd] = await Promise.all([loadGlobalScores(), loadDailyScores(d)]);
+  const renderList = (el, arr) => {
+    el.innerHTML = '';
+    (arr || []).slice(0, 20).forEach((it, i) => {
+      const li = document.createElement('li');
+      const hasHighest = typeof it.highest === 'number' && it.highest >= 0;
+      const highestName = hasHighest ? fruitDisplayName(it.highest) || `L${it.highest}` : null;
+      const isWatermelon = hasHighest && FRUITS[it.highest] === 'fruit_watermelon';
+      const dateStr = it.ts ? new Date(it.ts * 1000).toISOString().slice(0, 10) : null;
+      li.textContent = `${i + 1}. ${it.name || 'Player'} — ${it.score} pts${
+        it.moves ? `, ${it.moves} moves` : ''
+      }${hasHighest ? ` — Highest: ${highestName}` : ''}${isWatermelon ? ' 🍉' : ''}${
+        dateStr ? ` — ${dateStr}` : ''
+      }`;
+      el.appendChild(li);
+    });
+  };
+  renderList(lbModalGlobal, g);
+  renderList(lbModalDaily, dd);
+}
+
+function openLeaderboardsModal() {
+  if (!lbModal) return;
+  renderLeaderboardsModal();
+  lbModal.classList.remove('fm-hidden');
+}
+function closeLeaderboardsModal() {
+  if (!lbModal) return;
+  lbModal.classList.add('fm-hidden');
+}
+lbOpenBtn &&
+  lbOpenBtn.addEventListener('click', () => {
+    if (SFX.click) SFX.click.play(0.25);
+    openLeaderboardsModal();
+  });
+lbModalClose &&
+  lbModalClose.addEventListener('click', () => {
+    if (SFX.click) SFX.click.play(0.25);
+    closeLeaderboardsModal();
+  });
+lbModal &&
+  lbModal.addEventListener('click', (e) => {
+    if (e.target === lbModal) closeLeaderboardsModal();
+  });
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeLeaderboardsModal();
+});
 
 // ====================
 // HJELPERE
@@ -662,6 +780,54 @@ function fruitDisplayName(level) {
   const key = FRUITS[level] || '';
   const raw = key.replace(/^fruit_/, '');
   return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : '';
+}
+
+// ====================
+// GRID SIZE DETECTION / OVERRIDE (uniform 8x8 unless ?size provided)
+// ====================
+function isMobileDevice() {
+  try {
+    const mq = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+    const touch = navigator.maxTouchPoints && navigator.maxTouchPoints > 0;
+    const ua = navigator.userAgent || '';
+    const mobi = /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
+    return !!(mq || touch || mobi);
+  } catch {
+    return false;
+  }
+}
+function parseSizeParam() {
+  try {
+    const qs = new URLSearchParams(window.location.search);
+    const s = qs.get('size');
+    if (!s) return null;
+    const n = parseInt(s, 10);
+    if (n === 7 || n === 8 || n === 9) return { rows: n, cols: n };
+    if (/^\s*(\d+)x(\d+)\s*$/i.test(s)) {
+      const m = s.match(/^(\d+)x(\d+)$/i);
+      const r = parseInt(m[1], 10);
+      const c = parseInt(m[2], 10);
+      if (r > 2 && c > 2) return { rows: r, cols: c };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+function configureGridSizeFromEnv() {
+  // Uniform 8x8 unless explicit override via ?size
+  const override = parseSizeParam();
+  if (override) {
+    ROWS = override.rows;
+    COLS = override.cols;
+  } else {
+    ROWS = 8;
+    COLS = 8;
+  }
+  try {
+    document.documentElement.style.setProperty('--cols', String(COLS));
+    document.documentElement.style.setProperty('--rows', String(ROWS));
+  } catch {}
 }
 
 // ====================
@@ -727,6 +893,17 @@ function renderGrid() {
         const isDrop = fxQueue.some((fx) => fx.text === 'drop' && fx.row === r && fx.col === c);
         if (isDrop) img.classList.add('fm-drop-in');
         cell.appendChild(img);
+      } else if (cellData.kind === 'cannon') {
+        const img = document.createElement('img');
+        img.src = 'img/laser.png';
+        img.alt = 'laser cannon';
+        img.className = 'fm-fruit-img fm-cannon-img';
+        if (cannonOrientation === 'v') img.classList.add('is-vert');
+        // Pulse glow while charged
+        if (inventory.laser > 0) img.classList.add('fm-cannon-charged');
+        cell.appendChild(img);
+        cell.classList.add('fm-cell--cannon');
+        cell.title = 'Click the cannon to rotate (row/column)';
       }
 
       if (selected && selected.row === r && selected.col === c) {
@@ -754,7 +931,7 @@ function renderGrid() {
       const lvl = Math.min(targetLevel, FRUITS.length - 1);
       const sprite = FRUITS[lvl] || FRUITS[FRUITS.length - 1];
       const name = fruitDisplayName(lvl);
-      targetEl.innerHTML = `Target: <img src="img/${sprite}.png" alt="target" class="fm-target-img"> ${name} (L${lvl})`;
+      targetEl.innerHTML = `Target: <img src="img/${sprite}.png" alt="target" class="fm-target-img"> ${name}`;
     } else {
       targetEl.textContent = '';
     }
@@ -764,7 +941,7 @@ function renderGrid() {
       const lvl = Math.min(targetLevel, FRUITS.length - 1);
       const sprite = FRUITS[lvl] || FRUITS[FRUITS.length - 1];
       const name = fruitDisplayName(lvl);
-      targetBigEl.innerHTML = `<span class="fm-target-big-label">Target</span><img src="img/${sprite}.png" alt="target fruit" class="fm-target-img fm-target-img--big"> <strong>${name}</strong> <span class=\"fm-target-level\">(L${lvl})</span>`;
+      targetBigEl.innerHTML = `<span class="fm-target-big-label">Target</span><img src="img/${sprite}.png" alt="target fruit" class="fm-target-img fm-target-img--big"> <strong>${name}</strong>`;
     } else {
       targetBigEl.textContent = '';
     }
@@ -778,8 +955,27 @@ function renderGrid() {
   renderEffects();
   // Remove any drop markers we consumed
   fxQueue = fxQueue.filter((fx) => fx.text !== 'drop');
+  // Update laser UI
+  updateLaserUI();
   // Update hint attention each render
   updateHintAttention();
+
+  // Debug: verify DOM grid matches logical ROWS×COLS
+  try {
+    if (window.fmBoardDebug) {
+      const cells = boardEl.querySelectorAll('.fm-cell').length;
+      const expected = ROWS * COLS;
+      if (cells !== expected) {
+        console.warn('[BOARD] DOM/logical mismatch', { cells, expected, ROWS, COLS });
+      }
+      const styleCols = getComputedStyle(boardEl).getPropertyValue('grid-template-columns');
+      const colsCount =
+        (styleCols.match(/\(/) ? (styleCols.match(/repeat\((\d+)/) || [])[1] : null) || '';
+      if (colsCount && Number(colsCount) !== COLS) {
+        console.warn('[BOARD] CSS columns mismatch', { cssCols: Number(colsCount), COLS });
+      }
+    }
+  } catch {}
 }
 
 // ====================
@@ -841,33 +1037,48 @@ function removeNeighborLeaves(row, col) {
 
 // Fyll kun tomme celler i toppen av hver kolonne
 function refillFromTop() {
-  let spawned = false;
+  // Finn alle "top holes" først slik at bombene kan plasseres tilfeldig
+  const holes = [];
   for (let c = 0; c < COLS; c++) {
-    // Fyll alle ledige ruter fra toppen og ned til første hindring
     for (let r = 0; r < ROWS; r++) {
       if (grid[r][c] === null) {
-        let cell;
-        if (bombsToSpawn > 0) {
-          cell = { kind: 'bomb', newSpawn: true };
-          bombsToSpawn--;
-        } else {
-          cell = createRandomCell();
-        }
-        // Merk kun nye frukter som "newSpawn" slik at kun de faller i gravity
-        if (cell && (cell.kind === 'fruit' || cell.kind === 'bomb')) {
-          cell.newSpawn = true;
-        }
-        grid[r][c] = cell;
-        fxQueue.push({ row: r, col: c, text: 'drop' });
-        spawned = true;
+        holes.push({ r, c });
       } else {
-        // Første hindring; stopp fylling i denne kolonnen
-        break;
+        break; // stopp på første hindring i denne kolonnen
       }
     }
   }
-  if (spawned && SFX.refill) {
-    SFX.refill.play();
+  if (!holes.length) return;
+  // Bestem hvor mange bomber vi kan plassere i denne runden
+  const placeCount = Math.min(bombsToSpawn, holes.length);
+  const bombSet = new Set();
+  if (placeCount > 0) {
+    // Tilfeldig utvalg av hull til bomber
+    const indices = holes.map((_, i) => i);
+    for (let i = indices.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [indices[i], indices[j]] = [indices[j], indices[i]];
+    }
+    for (let k = 0; k < placeCount; k++) bombSet.add(indices[k]);
+    bombsToSpawn -= placeCount;
+  }
+  let spawned = false;
+  for (let i = 0; i < holes.length; i++) {
+    const { r, c } = holes[i];
+    let cell;
+    if (bombSet.has(i)) {
+      cell = { kind: 'bomb', newSpawn: true };
+    } else {
+      cell = createRandomCell();
+    }
+    if (cell && (cell.kind === 'fruit' || cell.kind === 'bomb')) cell.newSpawn = true;
+    grid[r][c] = cell;
+    fxQueue.push({ row: r, col: c, text: 'drop' });
+    spawned = true;
+  }
+  if (spawned && SFX.refill) SFX.refill.play();
+  if (window.fmLayoutDebug) {
+    console.log('[REFILL] holes', holes.length, 'bombs placed', placeCount);
   }
 }
 
@@ -989,7 +1200,8 @@ function explodeAt(row, col) {
     }
   }
   queueFx(row, col, 'explosion', true);
-  if (SFX.glass_unlock) SFX.glass_unlock.play();
+  if (SFX.bomb) SFX.bomb.play(0.7);
+  else if (SFX.glass_unlock) SFX.glass_unlock.play();
 }
 
 // ====================
@@ -1075,7 +1287,14 @@ function renderHighScores() {
   const lol = document.createElement('ol');
   list.slice(0, 20).forEach((it, i) => {
     const li = document.createElement('li');
-    li.textContent = `${i + 1}. ${it.name || 'Player'} — ${it.score} pts, ${it.moves} moves`;
+    const hasHighest = typeof it.highest === 'number' && it.highest >= 0;
+    const highestName = hasHighest ? fruitDisplayName(it.highest) || `L${it.highest}` : null;
+    const isWatermelon = hasHighest && FRUITS[it.highest] === 'fruit_watermelon';
+    const size = it.size ? ` — ${it.size}` : '';
+    const plat = it.platform ? ` (${it.platform})` : '';
+    li.textContent = `${i + 1}. ${it.name || 'Player'} — ${it.score} pts, ${it.moves} moves${
+      hasHighest ? ` — Highest: ${highestName}` : ''
+    }${isWatermelon ? ' 🍉' : ''}${size}${plat}`;
     lol.appendChild(li);
   });
   frag.appendChild(lol);
@@ -1089,12 +1308,12 @@ function renderHighScores() {
     Promise.all([
       api.get
         ? fetch(api.get)
-            .then((r) => r.json())
+            .then((r) => (r.ok ? r.json() : []))
             .catch(() => [])
         : Promise.resolve([]),
       api.getDaily
         ? fetch(api.getDaily + '?date=' + dstr.replaceAll('-', ''))
-            .then((r) => r.json())
+            .then((r) => (r.ok ? r.json() : []))
             .catch(() => [])
         : Promise.resolve([]),
     ])
@@ -1105,9 +1324,16 @@ function renderHighScores() {
         const gOl = document.createElement('ol');
         (Array.isArray(global) ? global : global.scores || []).slice(0, 20).forEach((it, i) => {
           const li = document.createElement('li');
+          const hasHighest = typeof it.highest === 'number' && it.highest >= 0;
+          const highestName = hasHighest ? fruitDisplayName(it.highest) || `L${it.highest}` : null;
+          const isWatermelon = hasHighest && FRUITS[it.highest] === 'fruit_watermelon';
+          const size = it.size ? ` — ${it.size}` : '';
+          const plat = it.platform ? ` (${it.platform})` : '';
           li.textContent = `${i + 1}. ${it.name || 'Player'} — ${it.score} pts${
             it.moves ? `, ${it.moves} moves` : ''
-          }`;
+          }${hasHighest ? ` — Highest: ${highestName}` : ''}${
+            isWatermelon ? ' 🍉' : ''
+          }${size}${plat}`;
           gOl.appendChild(li);
         });
         frag.appendChild(gOl);
@@ -1118,9 +1344,16 @@ function renderHighScores() {
         const dOl = document.createElement('ol');
         (Array.isArray(daily) ? daily : daily.scores || []).slice(0, 20).forEach((it, i) => {
           const li = document.createElement('li');
+          const hasHighest = typeof it.highest === 'number' && it.highest >= 0;
+          const highestName = hasHighest ? fruitDisplayName(it.highest) || `L${it.highest}` : null;
+          const isWatermelon = hasHighest && FRUITS[it.highest] === 'fruit_watermelon';
+          const size = it.size ? ` — ${it.size}` : '';
+          const plat = it.platform ? ` (${it.platform})` : '';
           li.textContent = `${i + 1}. ${it.name || 'Player'} — ${it.score} pts${
             it.moves ? `, ${it.moves} moves` : ''
-          }`;
+          }${hasHighest ? ` — Highest: ${highestName}` : ''}${
+            isWatermelon ? ' 🍉' : ''
+          }${size}${plat}`;
           dOl.appendChild(li);
         });
         frag.appendChild(dOl);
@@ -1129,6 +1362,7 @@ function renderHighScores() {
         highScoresEl.appendChild(frag);
       })
       .catch(() => {
+        // Graceful: keep local scores only
         highScoresEl.innerHTML = '';
         highScoresEl.appendChild(frag);
       });
@@ -1139,7 +1373,28 @@ function renderHighScores() {
 }
 function showGameOver() {
   if (!gameOverEl) return;
-  finalScoreEl.textContent = `Final score: ${score} (Moves: ${moves})`;
+  // Reset high score form state so player can choose to save or not each game
+  highScoreSubmitted = false;
+  if (playerNameInput) playerNameInput.disabled = false;
+  const submitBtn = highScoreForm && highScoreForm.querySelector('button[type="submit"]');
+  if (submitBtn) {
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Save score';
+  }
+  let highestOnBoard = 0;
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const cell = grid[r][c];
+      if (cell && cell.kind === 'fruit') highestOnBoard = Math.max(highestOnBoard, cell.level);
+    }
+  }
+  const highest = Math.max(highestFruitLevelSeen, highestOnBoard);
+  const highestName = fruitDisplayName(highest) || `L${highest}`;
+  const WATERMELON_INDEX = FRUITS.indexOf('fruit_watermelon');
+  if (WATERMELON_INDEX !== -1 && highest === WATERMELON_INDEX) {
+    score += 2000;
+  }
+  finalScoreEl.textContent = `Final score: ${score} (Moves: ${moves}) — Highest: ${highestName}`;
   renderHighScores();
   gameOverEl.classList.remove('fm-hidden');
   playerNameInput && playerNameInput.focus();
@@ -1149,12 +1404,21 @@ function hideGameOver() {
   if (gameOverEl) gameOverEl.classList.add('fm-hidden');
 }
 if (highScoreForm) {
-  let highScoreSubmitted = false;
   highScoreForm.addEventListener('submit', (e) => {
     e.preventDefault();
     if (highScoreSubmitted) return; // prevent duplicates
     const name = (playerNameInput && playerNameInput.value.trim()) || 'Player';
-    const entry = { name, score, moves, time: Date.now() };
+    const platform = isMobileDevice() ? 'mobile' : 'desktop';
+    const size = `${ROWS}x${COLS}`;
+    const entry = {
+      name,
+      score,
+      moves,
+      highest: highestFruitLevelSeen,
+      platform,
+      size,
+      time: Date.now(),
+    };
     const list = loadHighScores();
     list.push(entry);
     saveHighScores(list);
@@ -1180,7 +1444,13 @@ if (highScoreForm) {
           fetch(api.save, {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({ name, score: String(score), diff: 'normal' }),
+            body: new URLSearchParams({
+              name,
+              score: String(score),
+              highest: String(highestFruitLevelSeen),
+              platform,
+              size,
+            }),
           })
         );
       if (api.saveDaily)
@@ -1191,7 +1461,9 @@ if (highScoreForm) {
             body: new URLSearchParams({
               name,
               score: String(score),
-              diff: 'normal',
+              highest: String(highestFruitLevelSeen),
+              platform,
+              size,
               date: yyyymmdd,
             }),
           })
@@ -1215,6 +1487,47 @@ if (restartBtn) {
   });
 }
 
+// Lightweight confirm modal for mode switches/date changes
+function confirmNewGame(message = 'Start a new game?') {
+  if (!confirmEl) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    try {
+      if (confirmMsgEl) confirmMsgEl.textContent = message;
+      confirmEl.classList.remove('fm-hidden');
+      const onOk = () => {
+        cleanup();
+        resolve(true);
+      };
+      const onCancel = () => {
+        cleanup();
+        resolve(false);
+      };
+      const onKey = (e) => {
+        if (e.key === 'Escape') onCancel();
+        if (e.key === 'Enter') onOk();
+      };
+      function cleanup() {
+        confirmEl.classList.add('fm-hidden');
+        confirmOkBtn && confirmOkBtn.removeEventListener('click', onOk);
+        confirmCancelBtn && confirmCancelBtn.removeEventListener('click', onCancel);
+        window.removeEventListener('keydown', onKey);
+      }
+      confirmOkBtn && confirmOkBtn.addEventListener('click', onOk, { once: true });
+      confirmCancelBtn &&
+        confirmCancelBtn.addEventListener('click', onCancel, {
+          once: true,
+        });
+      window.addEventListener('keydown', onKey);
+    } catch {
+      resolve(window.confirm(message));
+    }
+  });
+}
+
+function isActiveGame() {
+  return !gameOver && moves > 0;
+}
+
 // ====================
 // INTERAKSJON
 // ====================
@@ -1223,6 +1536,14 @@ function handleCellClick(row, col) {
   if (gameOver) return;
   // Any board interaction clears an active hint
   hintPair = null;
+  // Cannon orientation toggle
+  const clickedCell = grid[row][col];
+  if (clickedCell && clickedCell.kind === 'cannon') {
+    cannonOrientation = cannonOrientation === 'h' ? 'v' : 'h';
+    if (SFX.click) SFX.click.play(0.25);
+    renderGrid();
+    return;
+  }
   const cell = grid[row][col];
 
   if (!selected) {
@@ -1299,6 +1620,7 @@ function handleCellClick(row, col) {
   const newLevel = Math.min(baseLevel + 1, FRUITS.length - 1);
   grid[destRow][destCol] = { kind: 'fruit', level: newLevel };
   grid[srcRow][srcCol] = null;
+  highestFruitLevelSeen = Math.max(highestFruitLevelSeen, newLevel);
 
   // play merge sound
   if (SFX && SFX.merge) SFX.merge.play();
@@ -1326,6 +1648,22 @@ function handleCellClick(row, col) {
   // Fjern blader rundt både kilde og destinasjon (decrement hp)
   removeNeighborLeaves(srcRow, srcCol);
   removeNeighborLeaves(destRow, destCol);
+
+  // Laser fire (adjacent to cannon) before other post-merge effects
+  if (cannonPos && inventory.laser > 0) {
+    const nearCannon = (r, c) => {
+      for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+          if (r + dr === cannonPos.row && c + dc === cannonPos.col) return true;
+        }
+      }
+      return false;
+    };
+    if (nearCannon(srcRow, srcCol) || nearCannon(destRow, destCol)) {
+      applyLaserFromCannon();
+      return; // laser flow handles gravity/refill + render
+    }
+  }
 
   // Nullstill seleksjon før vi manipulerer mer
   selected = null;
@@ -1361,6 +1699,15 @@ function handleCellClick(row, col) {
   if (exploded) {
     // Show explosion immediately
     renderGrid();
+    // Screen shake effect
+    try {
+      const wrapper = document.querySelector('.fm-wrapper');
+      if (wrapper) {
+        wrapper.classList.remove('fm-shake');
+        void wrapper.offsetWidth; // force reflow to restart animation
+        wrapper.classList.add('fm-shake');
+      }
+    } catch {}
     // Let fruits settle without spawning new ones yet
     setTimeout(() => {
       applyGravity();
@@ -1489,38 +1836,58 @@ if (hintBtn) {
   });
 }
 
+// Laser button setup
+function updateLaserUI() {
+  // No-op: Laser button removed; keep function for calls
+}
+// Laser button removed
+
 // Daily/Global buttons
 if (dailyBtn) {
   // Default date to today if empty
   if (dailyDateInput && !dailyDateInput.value) {
     dailyDateInput.value = new Date().toISOString().slice(0, 10);
   }
-  dailyBtn.addEventListener('click', () => {
+  dailyBtn.addEventListener('click', async () => {
     const today = new Date().toISOString().slice(0, 10);
     const d = dailyDateInput && dailyDateInput.value ? dailyDateInput.value : today;
     if (d > today) {
       alert('That date is in the future.');
       return;
     }
+    if (isActiveGame()) {
+      const ok = await confirmNewGame('Start a new Daily game? Current run will be lost.');
+      if (!ok) return;
+    }
     startDailyGameFor(d);
     updateModeLabel();
   });
 }
 if (globalBtn) {
-  globalBtn.addEventListener('click', () => {
+  globalBtn.addEventListener('click', async () => {
     dailyMode = false;
     dailyDateStr = null;
     rng = Math.random;
+    if (isActiveGame()) {
+      const ok = await confirmNewGame('Start a new Global game? Current run will be lost.');
+      if (!ok) return;
+    }
     startNewGame();
     updateModeLabel();
   });
 }
 // Auto-start daily on date change or Enter in date field
 if (dailyDateInput) {
-  dailyDateInput.addEventListener('change', () => {
+  dailyDateInput.addEventListener('change', async () => {
     const today = new Date().toISOString().slice(0, 10);
     const d = dailyDateInput.value || today;
     if (d > today) return; // ignore future
+    if (isActiveGame()) {
+      const ok = await confirmNewGame(
+        'Start a new Daily game for this date? Current run will be lost.'
+      );
+      if (!ok) return;
+    }
     startDailyGameFor(d);
     updateModeLabel();
   });
@@ -1530,13 +1897,23 @@ if (dailyDateInput) {
       const today = new Date().toISOString().slice(0, 10);
       const d = dailyDateInput.value || today;
       if (d > today) return;
-      startDailyGameFor(d);
-      updateModeLabel();
+      (async () => {
+        if (isActiveGame()) {
+          const ok = await confirmNewGame(
+            'Start a new Daily game for this date? Current run will be lost.'
+          );
+          if (!ok) return;
+        }
+        startDailyGameFor(d);
+        updateModeLabel();
+      })();
     }
   });
 }
 
 function startNewGame() {
+  // Configure grid size based on device before creating the grid
+  configureGridSizeFromEnv();
   score = 0;
   moves = 0;
   selected = null;
@@ -1577,21 +1954,22 @@ function startNewGame() {
         let cell = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--cell'));
         let gap = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--gap'));
         let pad = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--pad'));
-        let attempts = 0;
-        while (overflow > 0 && cell2 > 18 && attempts < 40) {
+        const MIN_CELL = 22;
+        let attempts2 = 0;
+        while (attempts2 < 50) {
+          const rectNow = board.getBoundingClientRect();
+          const overflowNow = rectNow.bottom - vh + 4;
+          if (overflowNow <= 0 || cell <= MIN_CELL) break;
           cell -= 1;
-          if (attempts % 4 === 0 && gap > 2) gap -= 1; // never below 2
-          if (attempts % 6 === 0 && pad > 1) pad -= 1;
-          attempts++;
+          if (attempts2 % 4 === 0 && gap > 2) gap -= 1;
+          if (attempts2 % 6 === 0 && pad > 1) pad -= 1;
           document.documentElement.style.setProperty('--cell', cell + 'px');
           document.documentElement.style.setProperty('--gap', gap + 'px');
           document.documentElement.style.setProperty('--pad', pad + 'px');
-          const r2 = board.getBoundingClientRect();
-          const overflow2 = r2.bottom - vh + 4;
-          if (overflow2 <= 0) break;
+          attempts2++;
         }
         if (window.fmLayoutDebug) {
-          console.log('[LAYOUT] Post-pass shrink attempts', attempts, 'final cell', cell);
+          console.log('[LAYOUT] Post-pass shrink attempts', attempts2, 'final cell', cell);
         }
       }
     } catch {}
@@ -1599,7 +1977,18 @@ function startNewGame() {
 }
 
 // start første spillet
+configureGridSizeFromEnv();
 fitBoardSizes();
+// If embedded in an iframe, hide inline leaderboard cards to avoid overflow
+try {
+  if (window.self !== window.top) {
+    document.body.classList.add('fm-embed');
+    // Detect iPad/iOS to add a small bottom reserve to board height
+    const ua = navigator.userAgent || navigator.vendor || '';
+    const isIpad = /iPad|Macintosh/.test(ua) && 'ontouchend' in document;
+    if (isIpad) document.body.classList.add('fm-ipad');
+  }
+} catch {}
 startNewGame();
 
 // ====================
@@ -1658,7 +2047,17 @@ function detonateBomb(row, col) {
   }
   // FX/SFX
   queueFx(row, col, 'explosion', true);
-  if (SFX.glass_unlock) SFX.glass_unlock.play();
+  if (SFX.bomb) SFX.bomb.play(0.7);
+  else if (SFX.glass_unlock) SFX.glass_unlock.play();
+  // Screen shake effect
+  try {
+    const wrapper = document.querySelector('.fm-wrapper');
+    if (wrapper) {
+      wrapper.classList.remove('fm-shake');
+      void wrapper.offsetWidth;
+      wrapper.classList.add('fm-shake');
+    }
+  } catch {}
   // Show explosion now
   renderGrid();
   // settle board without immediate refill
@@ -1684,6 +2083,112 @@ function detonateBomb(row, col) {
     }
     renderGrid();
   }, 180);
+}
+
+// ====================
+// Laser logic (cannon charges clear row or column based on orientation)
+// ====================
+function applyLaserFromCannon() {
+  if (!cannonPos || inventory.laser <= 0) return;
+  const { row, col } = cannonPos;
+  inventory.laser -= 1;
+  updateLaserUI();
+  // Play laser firing sound
+  if (SFX.laser) SFX.laser.play(0.6);
+  // Collect jars intersecting path
+  const ids = new Set();
+  if (cannonOrientation === 'h') {
+    for (const jar of jars) {
+      if (row >= jar.startRow && row < jar.startRow + jar.height) ids.add(jar.id);
+    }
+  } else {
+    for (const jar of jars) {
+      if (jar.col === col) ids.add(jar.id);
+    }
+  }
+  for (const id of ids) {
+    const idx = jars.findIndex((j) => j.id === id);
+    if (idx !== -1) unlockJarByIndex(idx);
+  }
+  // Clear path excluding cannon cell itself
+  if (cannonOrientation === 'h') {
+    for (let c = 0; c < COLS; c++) if (c !== col) grid[row][c] = null;
+    queueFx(row, col, 'laser-row', true);
+  } else {
+    for (let r = 0; r < ROWS; r++) if (r !== row) grid[r][col] = null;
+    queueFx(row, col, 'laser-col', true);
+  }
+  if (SFX.glass_unlock) SFX.glass_unlock.play();
+  // Score bonus for cleared fruits (exclude cannon cell)
+  let cleared = 0;
+  if (cannonOrientation === 'h') {
+    for (let c = 0; c < COLS; c++) {
+      if (c === col) continue;
+      const cell = grid[row][c];
+      if (cell && cell.kind === 'fruit') cleared++;
+    }
+  } else {
+    for (let r = 0; r < ROWS; r++) {
+      if (r === row) continue;
+      const cell = grid[r][col];
+      if (cell && cell.kind === 'fruit') cleared++;
+    }
+  }
+  if (cleared > 0) {
+    const bonus = cleared * LASER_SCORE_PER_FRUIT;
+    score += bonus;
+    queueFx(row, col, '+' + bonus, true);
+  }
+  // Keep cannon visible briefly for recoil; remove charge immediately
+  inventory.laser = 0;
+  updateLaserUI();
+  renderGrid();
+  // Recoil animation on the cannon image
+  try {
+    const cannonCell = boardEl.querySelector(`.fm-cell[data-row="${row}"][data-col="${col}"]`);
+    if (cannonCell) {
+      const keyframes =
+        cannonOrientation === 'h'
+          ? [
+              { transform: 'translate(0,0)' },
+              { transform: 'translate(-8px,0)' },
+              { transform: 'translate(0,0)' },
+            ]
+          : [
+              { transform: 'translate(0,0)' },
+              { transform: 'translate(0,-8px)' },
+              { transform: 'translate(0,0)' },
+            ];
+      cannonCell.animate(keyframes, { duration: 220, easing: 'cubic-bezier(.2,.9,.2,1)' });
+    }
+  } catch {}
+  // Despawn after beam animation finishes
+  setTimeout(() => {
+    grid[row][col] = null;
+    cannonPos = null;
+    lastCannonGoneAtMoves = moves;
+    // Now settle the board
+    applyGravity();
+    if (!hasAnyMergeMove()) {
+      refillFromTop();
+      applyGravity();
+      refillCounter += 1;
+      if (refillCounter % 3 === 2) spawnJars(1);
+      if (refillCounter % 3 === 0) {
+        bombsToSpawn += 1;
+        refillFromTop();
+        applyGravity();
+      }
+    }
+    if (checkGameOver()) {
+      gameOver = true;
+      renderGrid();
+      if (SFX.game_over) SFX.game_over.play();
+      showGameOver();
+      return;
+    }
+    renderGrid();
+  }, 1200);
 }
 
 // ====================
@@ -1785,6 +2290,40 @@ function spawnJars(count) {
       }
     }
     placed++;
+  }
+  // Attempt cannon spawn (balance conditions)
+  if (placed > 0 && !cannonPos) {
+    const canSpawn = moves - lastCannonGoneAtMoves >= LASER_MIN_MOVES_SINCE_LAST;
+    // Track failed attempts on window.fmLaserMisses
+    if (typeof window.fmLaserMisses !== 'number') window.fmLaserMisses = 0;
+    const force = window.fmLaserMisses >= LASER_GUARANTEE_AFTER;
+    if (canSpawn && (force || Math.random() < LASER_BASE_CHANCE)) {
+      // find random empty for cannon
+      let tries = 0;
+      while (tries < 400) {
+        tries++;
+        const r = randInt(0, ROWS - 1);
+        const c = randInt(0, COLS - 1);
+        if (grid[r][c] === null || (grid[r][c] && grid[r][c].kind === 'leaf')) {
+          if (grid[r][c] && grid[r][c].kind === 'leaf') grid[r][c] = null;
+          grid[r][c] = { kind: 'cannon' };
+          cannonPos = { row: r, col: c };
+          inventory.laser = 1;
+          updateLaserUI();
+          queueFx(r, c, 'Laser!', true);
+          if (!cannonSeen) {
+            cannonSeen = true;
+            try {
+              alert('Laser cannon: Click to rotate. Merge adjacent to fire.');
+            } catch {}
+          }
+          window.fmLaserMisses = 0; // reset miss counter after success
+          break;
+        }
+      }
+    } else if (canSpawn) {
+      window.fmLaserMisses += 1; // count missed spawn attempts when conditions were met
+    }
   }
 }
 
@@ -1890,6 +2429,98 @@ function renderEffects() {
   fxQueue = [];
   for (const fx of items) {
     if (fx.text === 'drop') continue; // internal marker, not a visual effect
+    if (fx.text === 'laser-row') {
+      // Draw a beam across the entire selected row
+      const r = fx.row;
+      const leftCell = boardEl.querySelector(`.fm-cell[data-row="${r}"][data-col="0"]`);
+      const rightCell = boardEl.querySelector(`.fm-cell[data-row="${r}"][data-col="${COLS - 1}"]`);
+      if (!leftCell || !rightCell) continue;
+      const lrect = leftCell.getBoundingClientRect();
+      const rrect = rightCell.getBoundingClientRect();
+      const brect = boardEl.getBoundingClientRect();
+      const beam = document.createElement('div');
+      beam.className = 'fm-laser-beam fm-laser-beam--anim';
+      beam.style.left = `${lrect.left - brect.left}px`;
+      beam.style.top = `${lrect.top - brect.top + lrect.height / 2 - 5}px`;
+      beam.style.width = `${rrect.right - lrect.left}px`;
+      beam.style.height = `16px`;
+      boardEl.appendChild(beam);
+      // Add brief spark particles along path
+      const span = rrect.right - lrect.left;
+      const sparkCount = Math.max(4, Math.round(span / 160));
+      for (let s = 0; s < sparkCount; s++) {
+        const sp = document.createElement('div');
+        sp.style.position = 'absolute';
+        sp.style.width = '6px';
+        sp.style.height = '6px';
+        sp.style.borderRadius = '50%';
+        sp.style.background = 'rgba(255,255,255,0.85)';
+        const sx = lrect.left - brect.left + Math.random() * span;
+        const sy = lrect.top - brect.top + lrect.height / 2 + (Math.random() - 0.5) * 12;
+        sp.style.left = `${sx}px`;
+        sp.style.top = `${sy}px`;
+        boardEl.appendChild(sp);
+        const dx = (Math.random() - 0.5) * 26;
+        const dy = (Math.random() - 0.5) * 18;
+        const dur = 180 + Math.random() * 120;
+        sp.animate(
+          [
+            { transform: 'translate(0,0)', opacity: 1 },
+            { transform: `translate(${dx}px,${dy}px)`, opacity: 0 },
+          ],
+          { duration: dur, easing: 'ease-out', fill: 'forwards' }
+        );
+        setTimeout(() => sp.remove(), dur + 20);
+      }
+      setTimeout(() => beam.remove(), 1300);
+      continue;
+    }
+    if (fx.text === 'laser-col') {
+      // Draw a vertical beam across the entire selected column
+      const c = fx.col;
+      const topCell = boardEl.querySelector(`.fm-cell[data-row="0"][data-col="${c}"]`);
+      const bottomCell = boardEl.querySelector(`.fm-cell[data-row="${ROWS - 1}"][data-col="${c}"]`);
+      if (!topCell || !bottomCell) continue;
+      const tRect = topCell.getBoundingClientRect();
+      const bRect = bottomCell.getBoundingClientRect();
+      const boardRect = boardEl.getBoundingClientRect();
+      const beam = document.createElement('div');
+      beam.className = 'fm-laser-beam fm-laser-beam--anim';
+      beam.style.left = `${tRect.left - boardRect.left + tRect.width / 2 - 5}px`;
+      beam.style.top = `${tRect.top - boardRect.top}px`;
+      beam.style.width = `16px`;
+      beam.style.height = `${bRect.bottom - tRect.top}px`;
+      boardEl.appendChild(beam);
+      // Particles
+      const spanY = bRect.bottom - tRect.top;
+      const sparkCount = Math.max(4, Math.round(spanY / 160));
+      for (let s = 0; s < sparkCount; s++) {
+        const sp = document.createElement('div');
+        sp.style.position = 'absolute';
+        sp.style.width = '6px';
+        sp.style.height = '6px';
+        sp.style.borderRadius = '50%';
+        sp.style.background = 'rgba(255,255,255,0.85)';
+        const sx = tRect.left - boardRect.left + tRect.width / 2 + (Math.random() - 0.5) * 12;
+        const sy = tRect.top - boardRect.top + Math.random() * spanY;
+        sp.style.left = `${sx}px`;
+        sp.style.top = `${sy}px`;
+        boardEl.appendChild(sp);
+        const dx = (Math.random() - 0.5) * 18;
+        const dy = (Math.random() - 0.5) * 26;
+        const dur = 180 + Math.random() * 120;
+        sp.animate(
+          [
+            { transform: 'translate(0,0)', opacity: 1 },
+            { transform: `translate(${dx}px,${dy}px)`, opacity: 0 },
+          ],
+          { duration: dur, easing: 'ease-out', fill: 'forwards' }
+        );
+        setTimeout(() => sp.remove(), dur + 20);
+      }
+      setTimeout(() => beam.remove(), 1300);
+      continue;
+    }
     if (fx.text === 'explosion') {
       // Cover 3x3 area centered at fx.row,fx.col (clamped to board)
       const r0 = Math.max(0, fx.row - 1);
@@ -1910,8 +2541,12 @@ function renderEffects() {
       img.className = 'fm-explosion';
       img.style.left = `${left}px`;
       img.style.top = `${top}px`;
-      img.style.width = `${width}px`;
-      img.style.height = `${height}px`;
+      // Enlarge explosion area (extend beyond truncated edges)
+      const enlarge = Math.min(60, Math.round(width * 0.35));
+      img.style.width = `${width + enlarge}px`;
+      img.style.height = `${height + enlarge}px`;
+      img.style.left = `${left - enlarge / 2}px`;
+      img.style.top = `${top - enlarge / 2}px`;
       const frames = [
         'img/sprite/eksplsjon_01.gif',
         'img/sprite/eksplsjon_02.gif',
@@ -1924,13 +2559,71 @@ function renderEffects() {
         'img/sprite/eksplsjon_09.gif',
       ];
       let i = 0;
+      const lingerFrame = 'img/sprite/eksplsjon_06.png';
+      // Removed white flash overlay to avoid white background artifact
+
+      // Simple debris sparks
+      const sparks = [];
+      const sparkCount = Math.min(12, Math.max(6, Math.round(width / 30)));
+      for (let s = 0; s < sparkCount; s++) {
+        const sp = document.createElement('div');
+        sp.className = 'fm-spark';
+        sp.style.position = 'absolute';
+        sp.style.width = '4px';
+        sp.style.height = '4px';
+        sp.style.borderRadius = '50%';
+        sp.style.background = 'rgba(255,200,80,0.95)';
+        const sx = left + width / 2 + (Math.random() - 0.5) * 16;
+        const sy = top + height / 2 + (Math.random() - 0.5) * 16;
+        sp.style.left = `${sx}px`;
+        sp.style.top = `${sy}px`;
+        boardEl.appendChild(sp);
+        const dx = (Math.random() - 0.5) * (enlarge + 60);
+        const dy = (Math.random() - 0.2) * (enlarge + 40);
+        const fade = 600 + Math.random() * 500;
+        sp.animate(
+          [
+            { transform: 'translate(0px,0px)', opacity: 1 },
+            { transform: `translate(${dx}px,${dy}px)`, opacity: 0 },
+          ],
+          { duration: fade, easing: 'ease-out', fill: 'forwards' }
+        );
+        setTimeout(() => sp.remove(), fade + 40);
+        sparks.push(sp);
+      }
+
       const step = () => {
-        if (i >= frames.length) {
-          img.remove();
-          return;
+        if (i < frames.length) {
+          img.src = frames[i++];
+          // Further increase per-frame time for longer animation
+          setTimeout(step, 630);
+        } else {
+          // Linger with a smoke frame then fade out (more extended)
+          img.src = lingerFrame;
+          img.style.opacity = '1';
+          setTimeout(() => {
+            img.style.transition = 'opacity 4800ms ease-out';
+            img.style.opacity = '0';
+            setTimeout(() => img.remove(), 4900);
+          }, 3600);
+          // Leave a faint scorch that fades slowly
+          const scorch = document.createElement('div');
+          scorch.style.position = 'absolute';
+          scorch.style.left = `${left - enlarge / 2}px`;
+          scorch.style.top = `${top - enlarge / 2}px`;
+          scorch.style.width = `${width + enlarge}px`;
+          scorch.style.height = `${height + enlarge}px`;
+          scorch.style.background =
+            'radial-gradient(circle, rgba(60,60,60,0.35) 0%, rgba(0,0,0,0) 60%)';
+          scorch.style.pointerEvents = 'none';
+          scorch.style.opacity = '0.9';
+          boardEl.appendChild(scorch);
+          setTimeout(() => {
+            scorch.style.transition = 'opacity 6300ms ease-out';
+            scorch.style.opacity = '0';
+            setTimeout(() => scorch.remove(), 6400);
+          }, 1350);
         }
-        img.src = frames[i++];
-        setTimeout(step, 60);
       };
       boardEl.appendChild(img);
       step();

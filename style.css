@@ -86,6 +86,114 @@ body {
   font-size: 12px;
 }
 
+/* Make Leaderboards button highly visible */
+#fm-lb-open {
+  background: #ef4444; /* red */
+  border-color: #dc2626;
+  color: #ffffff;
+  font-weight: 800;
+  padding: 8px 16px; /* larger than sm */
+  font-size: 14px;
+  box-shadow: 0 8px 18px rgba(239, 68, 68, 0.35);
+}
+#fm-lb-open:hover {
+  background: #dc2626;
+}
+#fm-lb-open:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.35);
+}
+/* Gentle attention pulse to draw focus */
+@keyframes fm-lb-pulse {
+  0% {
+    transform: translateY(0) scale(1);
+    box-shadow: 0 8px 18px rgba(239, 68, 68, 0.35);
+  }
+  50% {
+    transform: translateY(-1px) scale(1.03);
+    box-shadow: 0 14px 26px rgba(239, 68, 68, 0.5);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    box-shadow: 0 8px 18px rgba(239, 68, 68, 0.35);
+  }
+}
+#fm-lb-open {
+  animation: fm-lb-pulse 2.2s ease-in-out infinite;
+  border-radius: 999px;
+}
+
+/* Laser button disabled style */
+#fm-laser[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Laser beam placeholder */
+.fm-laser-beam {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 9;
+  /* More solid core with stronger glow */
+  background: linear-gradient(
+    90deg,
+    rgba(0, 0, 0, 0) 0%,
+    rgba(120, 200, 255, 1) 45%,
+    rgba(120, 200, 255, 1) 55%,
+    rgba(0, 0, 0, 0) 100%
+  );
+  opacity: 0;
+  box-shadow: 0 0 30px rgba(120, 200, 255, 0.85), 0 0 70px rgba(120, 200, 255, 0.45);
+}
+
+@keyframes fm-laser-flash {
+  0% {
+    opacity: 0;
+    transform: scale(0.96);
+    filter: blur(0.5px) brightness(1.2);
+  }
+  20% {
+    opacity: 1;
+    transform: scale(1.02);
+    filter: blur(0.6px) brightness(1.35);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1);
+    filter: blur(0.4px) brightness(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.98);
+    filter: blur(0.6px) brightness(0.9);
+  }
+}
+
+.fm-laser-beam--anim {
+  /* Longer visibility for clearer feedback */
+  animation: fm-laser-flash 1200ms ease-out forwards;
+}
+
+/* Cannon charged pulse */
+@keyframes fm-cannon-pulse {
+  0% {
+    filter: drop-shadow(0 0 5px rgba(80, 150, 255, 0.4)) brightness(1);
+  }
+  50% {
+    filter: drop-shadow(0 0 10px rgba(120, 200, 255, 0.9)) brightness(1.12);
+  }
+  100% {
+    filter: drop-shadow(0 0 5px rgba(80, 150, 255, 0.4)) brightness(1);
+  }
+}
+.fm-cannon-charged {
+  animation: fm-cannon-pulse 1200ms ease-in-out infinite;
+}
+
 /* Active toggle state */
 .fm-btn.is-active {
   background: #c7d2fe;
@@ -262,11 +370,49 @@ body {
   box-shadow: 0 22px 56px rgba(2, 6, 23, 0.28);
   display: grid;
   width: 100%;
-  grid-template-columns: repeat(9, var(--cell));
+  grid-template-columns: repeat(var(--cols, 8), var(--cell));
   grid-auto-rows: var(--cell);
   gap: var(--gap);
   justify-content: center;
   position: relative; /* allow absolute jar overlay */
+  /* Lock board height to prevent iPad Safari expansion when overlays animate */
+  height: calc(
+    2 * var(--pad) + var(--cell) * var(--rows, 8) + var(--gap) * (var(--rows, 8) - 1) +
+      var(--bottom-reserve, 0px)
+  );
+  overflow: hidden;
+}
+
+/* Screen shake animation for bomb explosions */
+@keyframes fm-shake {
+  0% {
+    transform: translate(0, 0);
+  }
+  15% {
+    transform: translate(-3px, 2px);
+  }
+  30% {
+    transform: translate(3px, -2px);
+  }
+  45% {
+    transform: translate(-4px, -3px);
+  }
+  60% {
+    transform: translate(4px, 3px);
+  }
+  75% {
+    transform: translate(-3px, 2px);
+  }
+  90% {
+    transform: translate(2px, -2px);
+  }
+  100% {
+    transform: translate(0, 0);
+  }
+}
+.fm-shake {
+  animation: fm-shake 480ms cubic-bezier(0.36, 0.07, 0.19, 0.97);
+  will-change: transform;
 }
 
 /* === Cells === */
@@ -315,6 +461,14 @@ body {
   object-fit: contain;
   pointer-events: none;
   user-select: none;
+}
+
+/* Cannon image helpers */
+.fm-cannon-img {
+  will-change: transform;
+}
+.fm-cannon-img.is-vert {
+  transform: rotate(90deg);
 }
 
 /* Bomb icon inside cells */
@@ -523,6 +677,16 @@ body {
   margin: 0 0 4px;
   line-height: 1.35;
 }
+
+/* Hide inline leaderboards when embedded (iframe) to avoid overflow */
+body.fm-embed .fm-lb-wrap {
+  display: none !important;
+}
+
+/* Add a small bottom reserve when embedded on iPad to avoid iframe clipping */
+body.fm-embed.fm-ipad {
+  --bottom-reserve: 16px;
+}
 .fm-go-save,
 .fm-go-restart {
   margin-top: 14px;
@@ -538,7 +702,8 @@ body {
 @media (max-width: 700px) {
   /* Reduce page padding to maximize board space */
   body {
-    padding: 8px 6px;
+    /* Keep bottom safe-area to avoid iOS toolbar overlap */
+    padding: 8px 6px calc(env(safe-area-inset-bottom, 0px) + 8px);
   }
 
   /* Use big target on mobile; hide small pill */
@@ -566,9 +731,11 @@ body {
     border-radius: 20px;
   }
 
-  /* Allow board to extend vertically; avoid clipping last row */
+  /* Keep board height locked even on small screens to avoid iframe overflow */
   .fm-board {
-    overflow: visible;
+    overflow: hidden;
+    /* Add a tiny reserve to avoid sub-pixel clipping of last row on some mobiles */
+    --bottom-reserve: 6px;
   }
 
   /* Ensure `main` (board) appears before leaderboards on mobile */
@@ -581,6 +748,12 @@ body {
 
   .fm-title {
     font-size: 26px;
+  }
+
+  /* Keep leaderboards button prominent on mobile */
+  #fm-lb-open {
+    padding: 10px 18px;
+    font-size: 15px;
   }
 
   .fm-sub {
@@ -643,7 +816,7 @@ body {
     width: 100%;
     padding: 2px; /* small internal padding so outer shadow not flush */
     gap: 2px; /* ensure visible separation for diagonals */
-    grid-template-columns: repeat(9, minmax(0, 1fr));
+    grid-template-columns: repeat(var(--cols, 8), minmax(0, 1fr));
     grid-auto-rows: 1fr; /* fractional rows; cells use aspect-ratio */
     margin-bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
   }
@@ -652,7 +825,7 @@ body {
     height: auto;
     aspect-ratio: 1 / 1; /* keep tiles square while shrinking */
     border-radius: 14px; /* slightly larger radius retains separation with gap */
-    box-shadow: 0 3px 10px rgba(0,0,0,0.45); /* lighter shadow to reduce visual merging */
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.45); /* lighter shadow to reduce visual merging */
   }
   .fm-fruit-img,
   .fm-leaf-img,

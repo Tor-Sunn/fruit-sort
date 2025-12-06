@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>Fruit Merge</title>
-    <link rel="stylesheet" href="style.css?v=20251129b" />
+    <title>Fruit Flow</title>
+    <link rel="stylesheet" href="style.css?v=20251129e" />
   </head>
   <body>
     <div class="fm-wrapper">
@@ -30,18 +30,10 @@
         </div>
       </section>
       <header class="fm-header">
-        <h1 class="fm-title">🍓 Fruit Merge</h1>
+        <h1 class="fm-title">🍓 Fruit Flow</h1>
         <div class="fm-stats">
           <span>Score: <span id="fm-score">0</span></span>
           <span>Moves: <span id="fm-moves">0</span></span>
-          <button
-            id="fm-sound-toggle"
-            class="fm-btn"
-            aria-pressed="true"
-            title="Toggle game sounds"
-          >
-            Sound: On
-          </button>
           <button
             id="fm-daily"
             class="fm-btn"
@@ -55,9 +47,11 @@
         </div>
         <div class="fm-stats fm-stats--sub">
           <span id="fm-target-big" class="fm-target-big"></span>
-          <span id="fm-mode" class="fm-mode"></span>
           <button id="fm-hint" class="fm-btn" title="Show a possible merge (costs 300)">
             Hint (-300)
+          </button>
+          <button id="fm-lb-open" class="fm-btn fm-btn--sm" title="Open leaderboards">
+            Leaderboards
           </button>
         </div>
       </header>
@@ -88,9 +82,49 @@
             <div id="fm-highscores" class="fm-highscores" aria-label="High scores"></div>
           </div>
         </div>
+        <!-- Confirm new game overlay (reuses gameover styles) -->
+        <div
+          id="fm-confirm"
+          class="fm-gameover fm-hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="fm-confirm-title"
+        >
+          <div class="fm-gameover-inner">
+            <h2 id="fm-confirm-title">Start a new game?</h2>
+            <p id="fm-confirm-msg">
+              Switching mode will start a new board and your current run will be lost.
+            </p>
+            <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 12px">
+              <button id="fm-confirm-cancel" class="fm-btn">Keep playing</button>
+              <button id="fm-confirm-ok" class="fm-btn fm-go-restart">Start new game</button>
+            </div>
+          </div>
+        </div>
+        <!-- Leaderboards modal overlay -->
+        <div
+          id="fm-lb-modal"
+          class="fm-gameover fm-hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="fm-lb-modal-title"
+        >
+          <div class="fm-gameover-inner" style="max-width: 560px">
+            <h2 id="fm-lb-modal-title">Leaderboards</h2>
+            <div class="fm-highscores" style="max-height: 320px">
+              <h3>Global</h3>
+              <ol id="fm-lb-modal-global" class="fm-lb"></ol>
+              <h3 style="margin-top: 12px">Daily</h3>
+              <ol id="fm-lb-modal-daily" class="fm-lb"></ol>
+            </div>
+            <div style="display: flex; justify-content: flex-end; margin-top: 12px; gap: 10px">
+              <button id="fm-lb-close" class="fm-btn">Close</button>
+            </div>
+          </div>
+        </div>
       </main>
     </div>
 
-    <script src="game.js?v=20251129b"></script>
+    <script src="game.js?v=20251130b"></script>
   </body>
 </html>
